@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画面録画</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1c1e21; --card:#fff; --accent:#e5484d; --muted:#6b7280; --line:#e2e5ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --fg:#e8eaed; --card:#1e2127; --muted:#9aa1ab; --line:#2c3038; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Hiragino Sans", "Yu Gothic", sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.3rem; margin:0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label.opt { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button { font:inherit; padding:10px 18px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  #timer { font-variant-numeric: tabular-nums; font-size:1.2rem; margin-left:auto; }
+  .rec #timer::before { content:"● "; color:var(--accent); }
+  video { width:100%; border-radius:8px; background:#000; margin-top:12px; }
+  #msg { color:var(--muted); font-size:.9rem; margin-top:8px; min-height:1.2em; }
+  .hint { color:var(--muted); font-size:.85rem; margin:8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>画面録画</h1>
+
+  <div class="card">
+    <label class="opt"><input type="checkbox" id="optSystem" checked> システム音声（共有画面／タブの音）</label>
+    <label class="opt"><input type="checkbox" id="optMic"> マイク音声</label>
+    <p class="hint">システム音声は共有ダイアログで「音声も共有」にチェックが必要です（Chrome / Edge。Windows は画面全体かタブ、Mac はタブのみ対応）。</p>
+  </div>
+
+  <div class="card" id="panel">
+    <div class="controls">
+      <button class="primary" id="start">録画開始</button>
+      <button id="pause" disabled>一時停止</button>
+      <button id="stop" disabled>停止</button>
+      <span id="timer">00:00</span>
+    </div>
+    <div id="msg"></div>
+    <video id="preview" controls playsinline hidden></video>
+    <div class="controls" style="margin-top:12px" id="result" hidden>
+      <button class="primary" id="download">ダウンロード</button>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const startBtn = $("start"), pauseBtn = $("pause"), stopBtn = $("stop");
+  const timerEl = $("timer"), msgEl = $("msg"), video = $("preview");
+  const result = $("result"), panel = $("panel");
+
+  let recorder, chunks = [], streams = [], audioCtx, tick, elapsed = 0, lastStart = 0, blobUrl, ext = "webm";
+
+  const say = t => msgEl.textContent = t || "";
+  const fmt = s => { s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+    const p = n => String(n).padStart(2, "0"); return (h ? p(h)+":" : "") + p(m) + ":" + p(x); };
+
+  function pickMime() {
+    const list = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+    return list.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  }
+
+  function cleanup() {
+    clearInterval(tick);
+    streams.forEach(s => s.getTracks().forEach(t => t.stop()));
+    streams = [];
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    panel.classList.remove("rec");
+    startBtn.disabled = false; pauseBtn.disabled = true; stopBtn.disabled = true;
+    pauseBtn.textContent = "一時停止";
+  }
+
+  function updateTimer() {
+    const now = recorder && recorder.state === "recording" ? (performance.now() - lastStart) / 1000 : 0;
+    timerEl.textContent = fmt(elapsed + now);
+  }
+
+  startBtn.onclick = async () => {
+    say("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      say("このブラウザは画面録画に対応していません。最新の Chrome / Edge / Firefox を使ってください。"); return;
+    }
+    try {
+      const wantSystem = $("optSystem").checked, wantMic = $("optMic").checked;
+      const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: wantSystem });
+      streams.push(screen);
+
+      let mic = null;
+      if (wantMic) {
+        try { mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); streams.push(mic); }
+        catch (e) { say("マイクを使えなかったため、マイクなしで録画します。"); }
+      }
+
+      // 音声ソースをひとつのトラックにミックス
+      const tracks = [...screen.getVideoTracks()];
+      const sources = [screen, mic].filter(s => s && s.getAudioTracks().length);
+      if (sources.length) {
+        audioCtx = new AudioContext();
+        const dest = audioCtx.createMediaStreamDestination();
+        sources.forEach(s => audioCtx.createMediaStreamSource(new MediaStream(s.getAudioTracks())).connect(dest));
+        tracks.push(...dest.stream.getAudioTracks());
+      } else if (wantSystem || wantMic) {
+        say((msgEl.textContent ? msgEl.textContent + " " : "") + "音声なしで録画中です（共有時に音声共有が選ばれていません）。");
+      }
+
+      const mime = pickMime();
+      ext = mime.includes("mp4") ? "mp4" : "webm";
+      chunks = []; elapsed = 0;
+      recorder = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime } : undefined);
+      recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+      recorder.onstop = () => {
+        cleanup();
+        const blob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        blobUrl = URL.createObjectURL(blob);
+        video.src = blobUrl; video.hidden = false; result.hidden = false;
+        say("録画が完了しました。ダウンロードで保存できます。");
+      };
+      // ブラウザの「共有を停止」ボタンでも停止できるように
+      screen.getVideoTracks()[0].addEventListener("ended", () => { if (recorder.state !== "inactive") recorder.stop(); });
+
+      video.hidden = true; result.hidden = true;
+      recorder.start(1000);
+      lastStart = performance.now();
+      tick = setInterval(updateTimer, 250);
+      panel.classList.add("rec");
+      startBtn.disabled = true; pauseBtn.disabled = false; stopBtn.disabled = false;
+    } catch (e) {
+      cleanup();
+      say(e.name === "NotAllowedError" ? "画面の共有がキャンセルされました。" : "録画を開始できませんでした: " + e.message);
+    }
+  };
+
+  pauseBtn.onclick = () => {
+    if (!recorder) return;
+    if (recorder.state === "recording") {
+      elapsed += (performance.now() - lastStart) / 1000;
+      recorder.pause(); pauseBtn.textContent = "再開";
+    } else if (recorder.state === "paused") {
+      recorder.resume(); lastStart = performance.now(); pauseBtn.textContent = "一時停止";
+    }
+    updateTimer();
+  };
+
+  stopBtn.onclick = () => { if (recorder && recorder.state !== "inactive") recorder.stop(); };
+
+  $("download").onclick = () => {
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `recording-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+    a.click();
+  };
+
+  window.addEventListener("beforeunload", e => {
+    if (recorder && recorder.state !== "inactive") { e.preventDefault(); e.returnValue = ""; }
+  });
+})();
+</script>
+</body>
+</html>
