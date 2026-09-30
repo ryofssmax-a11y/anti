@@ -1,0 +1,27 @@
+{
+  "name": "screen-recorder",
+  "version": "1.0.0",
+  "description": "シンプルな画面録画・録音アプリ",
+  "main": "src/main.js",
+  "author": "ryofssmax-a11y",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.example.screenrecorder",
+    "productName": "画面録画",
+    "files": ["src/**/*", "package.json"],
+    "asarUnpack": ["node_modules/ffmpeg-static/**"],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

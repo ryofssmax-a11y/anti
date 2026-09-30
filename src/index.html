@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>画面録画</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1c1e21; --card:#fff; --accent:#e5484d; --muted:#6b7280; --line:#e2e5ea; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14161a; --fg:#e8eaed; --card:#1e2127; --muted:#9aa1ab; --line:#2c3038; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Yu Gothic UI", "Meiryo", system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { padding:20px 16px 32px; }
+  h1 { font-size:1.2rem; margin:0 0 14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  h2 { font-size:.95rem; margin:0 0 10px; }
+  label.opt { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  #sources { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; max-height:230px; overflow:auto; }
+  .src { border:2px solid var(--line); border-radius:8px; padding:4px; background:none; color:var(--fg); cursor:pointer; text-align:left; font:inherit; }
+  .src.sel { border-color:var(--accent); }
+  .src img { width:100%; display:block; border-radius:4px; background:#000; }
+  .src span { display:block; font-size:.75rem; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button.b { font:inherit; padding:9px 16px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  #timer { font-variant-numeric:tabular-nums; font-size:1.2rem; margin-left:auto; }
+  .rec #timer::before { content:"● "; color:var(--accent); }
+  #msg { color:var(--muted); font-size:.9rem; margin-top:10px; min-height:1.2em; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>画面録画</h1>
+
+  <div class="card">
+    <h2>録画する画面・ウィンドウ</h2>
+    <div id="sources"></div>
+    <div class="controls" style="margin-top:8px"><button class="b" id="refresh">一覧を更新</button></div>
+  </div>
+
+  <div class="card">
+    <h2>音声</h2>
+    <label class="opt"><input type="checkbox" id="optSystem" checked> システム音声（PCから出ている音）</label>
+    <label class="opt"><input type="checkbox" id="optMic"> マイク音声</label>
+  </div>
+
+  <div class="card" id="panel">
+    <div class="controls">
+      <button class="b primary" id="start">録画開始</button>
+      <button class="b" id="pause" disabled>一時停止</button>
+      <button class="b" id="stop" disabled>停止して保存</button>
+      <span id="timer">00:00</span>
+    </div>
+    <div id="msg"></div>
+    <div class="controls" style="margin-top:10px" id="done" hidden>
+      <button class="b" id="openFolder">フォルダを開く</button>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const startBtn = $("start"), pauseBtn = $("pause"), stopBtn = $("stop");
+  const timerEl = $("timer"), msgEl = $("msg"), panel = $("panel"), done = $("done");
+
+  let selected = null, recorder, streams = [], audioCtx, tick, elapsed = 0, lastStart = 0, savedPath = null;
+  let writing = Promise.resolve();
+
+  const say = t => msgEl.textContent = t || "";
+  const fmt = s => { s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+    const p = n => String(n).padStart(2, "0"); return (h ? p(h)+":" : "") + p(m) + ":" + p(x); };
+
+  async function loadSources() {
+    const list = await window.api.listSources();
+    const box = $("sources"); box.innerHTML = "";
+    if (!list.find(s => s.id === selected)) selected = list[0] && list[0].id;
+    list.forEach(s => {
+      const b = document.createElement("button");
+      b.className = "src" + (s.id === selected ? " sel" : "");
+      const img = document.createElement("img"); img.src = s.thumbnail;
+      const name = document.createElement("span"); name.textContent = s.name;
+      b.append(img, name);
+      b.onclick = () => { selected = s.id; [...box.children].forEach(c => c.classList.remove("sel")); b.classList.add("sel"); };
+      box.appendChild(b);
+    });
+  }
+  $("refresh").onclick = loadSources;
+  loadSources();
+
+  function cleanup() {
+    clearInterval(tick);
+    streams.forEach(s => s.getTracks().forEach(t => t.stop())); streams = [];
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    panel.classList.remove("rec");
+    startBtn.disabled = false; pauseBtn.disabled = true; stopBtn.disabled = true;
+    pauseBtn.textContent = "一時停止";
+  }
+
+  function updateTimer() {
+    const now = recorder && recorder.state === "recording" ? (performance.now() - lastStart) / 1000 : 0;
+    timerEl.textContent = fmt(elapsed + now);
+  }
+
+  startBtn.onclick = async () => {
+    say(""); done.hidden = true;
+    try {
+      const wantSystem = $("optSystem").checked, wantMic = $("optMic").checked;
+      await window.api.setCapture({ sourceId: selected, systemAudio: wantSystem });
+      const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: wantSystem });
+      streams.push(screen);
+
+      let mic = null;
+      if (wantMic) {
+        try { mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); streams.push(mic); }
+        catch { say("マイクを使えなかったため、マイクなしで録画します。"); }
+      }
+
+      const tracks = [...screen.getVideoTracks()];
+      const sources = [screen, mic].filter(s => s && s.getAudioTracks().length);
+      if (sources.length) {
+        audioCtx = new AudioContext();
+        const dest = audioCtx.createMediaStreamDestination();
+        sources.forEach(s => audioCtx.createMediaStreamSource(new MediaStream(s.getAudioTracks())).connect(dest));
+        tracks.push(...dest.stream.getAudioTracks());
+      }
+
+      await window.api.recStart();
+      writing = Promise.resolve(); elapsed = 0;
+      recorder = new MediaRecorder(new MediaStream(tracks), { mimeType: "video/webm;codecs=vp9,opus", videoBitsPerSecond: 8_000_000 });
+      recorder.ondataavailable = e => {
+        if (!e.data.size) return;
+        writing = writing.then(async () => window.api.recChunk(await e.data.arrayBuffer()));
+      };
+      recorder.onstop = async () => {
+        cleanup();
+        say("MP4 に変換しています…");
+        startBtn.disabled = true;
+        try {
+          await writing;
+          const r = await window.api.recFinish();
+          if (r.canceled) say("保存をキャンセルしました。");
+          else if (r.error) say(r.error);
+          else { savedPath = r.path; say("保存しました:\n" + r.path); done.hidden = false; }
+        } catch (e) { say("保存に失敗しました: " + e.message); }
+        startBtn.disabled = false;
+      };
+      screen.getVideoTracks()[0].addEventListener("ended", () => { if (recorder.state !== "inactive") recorder.stop(); });
+
+      recorder.start(1000);
+      lastStart = performance.now();
+      tick = setInterval(updateTimer, 250);
+      panel.classList.add("rec");
+      startBtn.disabled = true; pauseBtn.disabled = false; stopBtn.disabled = false;
+    } catch (e) {
+      cleanup();
+      window.api.recDiscard();
+      say("録画を開始できませんでした: " + e.message);
+    }
+  };
+
+  pauseBtn.onclick = () => {
+    if (!recorder) return;
+    if (recorder.state === "recording") {
+      elapsed += (performance.now() - lastStart) / 1000;
+      recorder.pause(); pauseBtn.textContent = "再開";
+    } else if (recorder.state === "paused") {
+      recorder.resume(); lastStart = performance.now(); pauseBtn.textContent = "一時停止";
+    }
+    updateTimer();
+  };
+  stopBtn.onclick = () => { if (recorder && recorder.state !== "inactive") recorder.stop(); };
+  $("openFolder").onclick = () => savedPath && window.api.showInFolder(savedPath);
+})();
+</script>
+</body>
+</html>
