@@ -194,11 +194,12 @@ nav.tabs button[aria-current="page"] { color: var(--accent); font-weight: 700; }
 <nav class="tabs" aria-label="メニュー"><div class="in" id="tabs"></div></nav>
 <div class="toast" id="toast" hidden></div>
 
+<script src="audio.js"></script>
 <script>
 /* ===================== DATA ===================== */
 const CATS = {
   greet: "あいさつ", react: "あいづち", feel: "気持ち", ask: "誘う・頼む",
-  sorry: "お礼・断り", work: "仕事", casual: "日常"
+  sorry: "お礼・断り", work: "仕事", casual: "日常", travel: "旅行"
 };
 
 // g = 意味グループ（クイズで同じ意味の選択肢が並ばないようにする）
@@ -416,7 +417,79 @@ const PHRASES = [
   { id: 52, en: "You bet.", ja: "もちろん！", cat: "casual", g: "yes",
     tb: "Yes, of course I will.", sit: "「手伝ってくれる？」と頼まれて、快く引き受ける",
     nu: "Sure! の強めバージョン。お礼への返事（どういたしまして）としても使われる。",
-    ex: [["A", "Can you help me move on Saturday?"], ["B", "You bet."]] }
+    ex: [["A", "Can you help me move on Saturday?"], ["B", "You bet."]] },
+  { id: 53, en: "I have a reservation under Tanaka.", ja: "田中で予約しています。", cat: "travel", g: "reserve",
+    tb: "I reserved by the name of Tanaka.", sit: "ホテルのフロントやレストランで、予約していることを伝える",
+    nu: "under + 名前 で「〜の名前で」。ホテルでもレストランでも使える定番。",
+    ex: [["A", "Hi, checking in?"], ["B", "Yes, I have a reservation under Tanaka."]] },
+  { id: 54, en: "Can I check in early?", ja: "早めにチェックインできますか？", cat: "travel", g: "checkin",
+    sit: "ホテルに早く着いてしまい、チェックインできるか聞く",
+    nu: "Is early check-in possible? とも言える。無理なら Can I leave my bags here?（荷物を預けられますか）。",
+    ex: [["A", "Can I check in early?"], ["B", "Let me see if your room is ready."]] },
+  { id: 55, en: "Could you recommend a good place to eat around here?", ja: "この辺でおすすめのお店はありますか？", cat: "travel", g: "recommend",
+    tb: "Please teach me a delicious restaurant.", sit: "ホテルのスタッフに、近くのおいしいお店を聞く",
+    nu: "teach は「教科として教える」。情報を教えてほしいときは recommend や tell を使う。",
+    ex: [["A", "Could you recommend a good place to eat around here?"], ["B", "There's a great taco place two blocks away."]] },
+  { id: 56, en: "What do you recommend?", ja: "おすすめは何ですか？", cat: "travel", g: "recommend",
+    tb: "Which menu is delicious?", sit: "レストランで、店員におすすめの料理を聞く",
+    nu: "メニューを見て迷ったらこれ。menu は「料理一覧」で、料理そのものは dish。",
+    ex: [["A", "What do you recommend?"], ["B", "The salmon is really popular."]] },
+  { id: 57, en: "How do I get to the station?", ja: "駅へはどう行けばいいですか？", cat: "travel", g: "way",
+    tb: "Please tell me the way to the station.", sit: "道行く人に、駅までの行き方をたずねる",
+    nu: "How do I get to ~? は行き方を聞く定番。前に Excuse me, を付けると丁寧。",
+    ex: [["A", "Excuse me, how do I get to the station?"], ["B", "Go straight and turn left at the light."]] },
+  { id: 58, en: "Is it within walking distance?", ja: "歩いて行ける距離ですか？", cat: "travel", g: "walk",
+    sit: "目的地まで歩いて行けるかどうか確かめる",
+    nu: "Can I walk there? でもOK。返事は It's about a ten-minute walk. のように来る。",
+    ex: [["A", "Is the museum within walking distance?"], ["B", "Yeah, it's about a ten-minute walk."]] },
+  { id: 59, en: "Can I get the check, please?", ja: "お会計お願いします。", cat: "travel", g: "check",
+    tb: "Please calculate.", sit: "レストランで食べ終わって、お会計をお願いする",
+    nu: "アメリカでは check、イギリスでは bill。テーブルで払うのが一般的。",
+    ex: [["A", "Can I get the check, please?"], ["B", "Sure, I'll be right back."]] },
+  { id: 60, en: "Could you take a picture of us?", ja: "写真を撮ってもらえますか？", cat: "travel", g: "photo",
+    tb: "Please take our picture.", sit: "観光地で、近くの人に写真を撮ってもらいたい",
+    nu: "Could you ~? で頼むと丁寧。撮ってもらったら Thanks so much! を忘れずに。",
+    ex: [["A", "Excuse me, could you take a picture of us?"], ["B", "Sure! Say cheese!"]] },
+  { id: 61, en: "I'm just looking, thanks.", ja: "見ているだけです。", cat: "travel", g: "looking",
+    tb: "No, I don't need help.", sit: "お店で店員に「何かお探しですか？」と声をかけられた",
+    nu: "thanks を付けるとやわらかく断れる。お店では必ずと言っていいほど使う。",
+    ex: [["A", "Can I help you find anything?"], ["B", "I'm just looking, thanks."]] },
+  { id: 62, en: "Do you take credit cards?", ja: "クレジットカードは使えますか？", cat: "travel", g: "card",
+    tb: "Is credit card OK?", sit: "お店で、カードで払えるかどうか聞く",
+    nu: "take = 受け付ける。Do you take Apple Pay? のようにも使える。",
+    ex: [["A", "Do you take credit cards?"], ["B", "Yes, we take all major cards."]] },
+  { id: 63, en: "Could I get a box for this?", ja: "残りを持ち帰りたいので箱をもらえますか？", cat: "travel", g: "box",
+    tb: "I want to take this home.", sit: "レストランで食べきれなかった料理を持ち帰りたい",
+    nu: "アメリカは量が多いので、持ち帰りはごく普通。Can I get a to-go box? とも言う。",
+    ex: [["A", "Are you still working on that?"], ["B", "I'm done. Could I get a box for this?"]] },
+  { id: 64, en: "I'm here on vacation.", ja: "休暇で来ています。", cat: "travel", g: "purpose",
+    sit: "現地の人に「旅行？仕事？」と聞かれて、観光で来たと答える",
+    nu: "on vacation = 休暇中で。入国審査なら Sightseeing. / For vacation. と短く答えてもOK。",
+    ex: [["A", "Are you here for work?"], ["B", "No, I'm here on vacation."]] },
+  { id: 65, en: "My flight got canceled.", ja: "フライトが欠航になりました。", cat: "travel", g: "flight",
+    tb: "My airplane was stopped.", sit: "空港のカウンターで、乗る予定の便が欠航になったと伝える",
+    nu: "got + 過去分詞 で「〜されちゃった」。遅延なら My flight got delayed.",
+    ex: [["A", "How can I help you?"], ["B", "My flight got canceled. Can you rebook me?"]] },
+  { id: 66, en: "Is there a pharmacy nearby?", ja: "近くに薬局はありますか？", cat: "travel", g: "pharmacy",
+    tb: "Where is drug store?", sit: "体調をくずして、近くで薬を買える場所を探す",
+    nu: "Is there a ~ nearby? は何にでも使える。ATM・トイレ・コンビニなど。",
+    ex: [["A", "Is there a pharmacy nearby?"], ["B", "There's a CVS across the street."]] },
+  { id: 67, en: "I think I'm lost.", ja: "道に迷ったみたいです。", cat: "travel", g: "lost",
+    tb: "I lost my way.", sit: "知らない街で、どこにいるのか分からなくなった",
+    nu: "be lost = 迷っている状態。I think を付けると自然に助けを求められる。",
+    ex: [["A", "You look confused. Need help?"], ["B", "Yes, I think I'm lost."]] },
+  { id: 68, en: "Does this bus go downtown?", ja: "このバスは中心街に行きますか？", cat: "travel", g: "bus",
+    tb: "Is this bus going to downtown?", sit: "バスに乗る前に、目的地に行くか運転手に確かめる",
+    nu: "downtown は副詞なので to は不要。Does this train stop at ~? も便利。",
+    ex: [["A", "Does this bus go downtown?"], ["B", "Yep, hop on."]] },
+  { id: 69, en: "Keep the change.", ja: "おつりは取っておいてください。", cat: "travel", g: "change",
+    sit: "タクシーを降りるとき、おつりをチップとして渡す",
+    nu: "チップ文化の国では定番。少額のおつりをそのままチップにできる。",
+    ex: [["A", "That's eighteen fifty."], ["B", "Here's twenty. Keep the change."]] },
+  { id: 70, en: "Table for two, please.", ja: "2名です。", cat: "travel", g: "table",
+    tb: "We are two people.", sit: "レストランの入り口で、人数を伝える",
+    nu: "Table for + 人数 が定番。返事は Right this way.（こちらへどうぞ）。",
+    ex: [["A", "Hi, how many?"], ["B", "Table for two, please."]] }
 ];
 
 // 会話シミュレーション。s: 2=ネイティブっぽい, 1=通じるけど惜しい, 0=不自然
@@ -504,6 +577,50 @@ const SCENES = [
       { e: "You too! Catch you later.", s: 2, f: "別れ際の自然な返し。" },
       { e: "Bye.", s: 1, f: "OKだが、You too! を添えると温かい。" },
       { e: "I will take care of it.", s: 0, f: "take care of it は「それを処理する」。別れの挨拶とは別物。" } ] }
+  ]},
+  { id: "hotel", title: "ホテルのチェックイン", sub: "予約の伝え方から部屋のことまで", who: "Front desk", turns: [
+    { t: "Hi, welcome! Checking in?", ja: "いらっしゃいませ！チェックインですか？", o: [
+      { e: "Yes, I have a reservation under Tanaka.", s: 2, f: "名前まで伝えるとスムーズ。under + 名前 が定番。" },
+      { e: "Yes. I reserved.", s: 1, f: "通じるけれど、名前も伝えると親切。I made a reservation. の方が自然。" },
+      { e: "I want to check.", s: 0, f: "check だけだと「確認したい」になる。check in まで言おう。" } ] },
+    { t: "Great. Can I see your passport, please?", ja: "パスポートを拝見できますか？", o: [
+      { e: "Sure, here you go.", s: 2, f: "物を渡すときの決まり文句。" },
+      { e: "Yes.", s: 1, f: "問題ないが、Here you go. を添えるとスマート。" },
+      { e: "Please see.", s: 0, f: "直訳っぽく、不自然に聞こえる。" } ] },
+    { t: "You're all set. You're in room 512. Breakfast is from 7 to 10.", ja: "手続き完了です。512号室です。朝食は7時から10時です。", o: [
+      { e: "Thanks! Is there Wi-Fi in the room?", s: 2, f: "お礼＋知りたいことを聞けている。" },
+      { e: "OK.", s: 1, f: "通じるが、お礼を言うと印象が良い。" },
+      { e: "All set? What is set?", s: 0, f: "all set は「準備完了・手続き完了」という意味。" } ] },
+    { t: "Yes, the password is on your key card holder. Anything else?", ja: "はい、パスワードはカードキーのケースに書いてあります。他に何か？", o: [
+      { e: "That's it. Thanks!", s: 2, f: "「以上です、ありがとう」の自然な締め。" },
+      { e: "No.", s: 1, f: "通じるが、少しそっけない。No, that's all. Thanks! なら◎。" },
+      { e: "Yes, else.", s: 0, f: "意味が通じない。" } ] },
+    { t: "Enjoy your stay!", ja: "ごゆっくりお過ごしください！", o: [
+      { e: "Thank you, I will!", s: 2, f: "明るく受け取れている。" },
+      { e: "Thanks.", s: 1, f: "OK。もう少し気持ちを乗せても。" },
+      { e: "You too!", s: 0, f: "スタッフは泊まらないので、ここで You too! はちぐはぐ。" } ] }
+  ]},
+  { id: "restaurant", title: "レストランで食事", sub: "入店から会計までひと通り", who: "Server", turns: [
+    { t: "Hi there! How many?", ja: "いらっしゃいませ！何名様ですか？", o: [
+      { e: "Table for two, please.", s: 2, f: "人数を伝える定番フレーズ。" },
+      { e: "Two.", s: 1, f: "通じるが、Two, please. くらいは言いたい。" },
+      { e: "We are two people.", s: 0, f: "日本語の直訳で、不自然に聞こえる。" } ] },
+    { t: "Are you ready to order?", ja: "ご注文はお決まりですか？", o: [
+      { e: "Not yet. Can we have a few more minutes?", s: 2, f: "まだ決まっていないときの丁寧な返し。" },
+      { e: "What do you recommend?", s: 2, f: "迷ったら店員さんに聞くのが一番。" },
+      { e: "Wait.", s: 0, f: "命令になってしまい、失礼に聞こえる。" } ] },
+    { t: "How is everything?", ja: "お料理はいかがですか？", o: [
+      { e: "Great, thanks!", s: 2, f: "食事中に必ず聞かれる質問。軽く返せばOK。" },
+      { e: "Good.", s: 1, f: "問題ないが、thanks を添えると感じが良い。" },
+      { e: "Everything is everything.", s: 0, f: "意味が通じない。" } ] },
+    { t: "Can I get you anything else?", ja: "他に何かお持ちしましょうか？", o: [
+      { e: "Can I get the check, please?", s: 2, f: "お会計はテーブルで頼むのがアメリカ流。" },
+      { e: "Check.", s: 1, f: "通じるが、ぶっきらぼう。" },
+      { e: "Please calculate.", s: 0, f: "「お勘定」の直訳。英語では check を使う。" } ] },
+    { t: "Here you go. Have a great night!", ja: "こちらです。良い夜を！", o: [
+      { e: "Thanks, you too!", s: 2, f: "お決まりの返し。" },
+      { e: "Thank you.", s: 1, f: "OK。you too! を添えるとさらに自然。" },
+      { e: "Yes, I will have.", s: 0, f: "文として成り立っていない。" } ] }
   ]}
 ];
 
@@ -543,9 +660,24 @@ function pickVoice() {
   } catch (e) {}
 }
 if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+// 収録済み音声（audio.js）を優先し、無いときだけ端末の読み上げ機能を使う
+const player = new Audio();
+function stopAudio() {
+  try { player.pause(); } catch (e) {}
+  try { speechSynthesis.cancel(); } catch (e) {}
+}
 function speak(text, slow) {
+  stopAudio();
+  const clip = window.AUDIO && window.AUDIO[text];
+  if (clip) {
+    player.src = clip;
+    player.playbackRate = slow ? 0.75 : 1;
+    player.preservesPitch = true;
+    const pr = player.play();
+    if (pr && pr.catch) pr.catch(() => {});
+    return;
+  }
   if (!("speechSynthesis" in window)) { toast("この端末は読み上げに対応していません"); return; }
-  speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "en-US"; if (voice) u.voice = voice; u.rate = slow ? 0.7 : 0.95;
   speechSynthesis.speak(u);
@@ -580,7 +712,7 @@ function renderTabs() {
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (b) go(b.dataset.tab); });
 function go(k) {
   tab = k; renderTabs();
-  try { speechSynthesis.cancel(); } catch (e) {}
+  stopAudio();
   ({ home: viewHome, list: viewList, quiz: viewQuizMenu, chat: viewScenes, mic: viewSpeak })[k]();
   window.scrollTo(0, 0);
 }
@@ -630,7 +762,7 @@ function viewHome() {
     </section>
     <section class="menu">
       <button data-go="quiz"><strong>場面クイズ</strong><span>この場面、ネイティブなら何て言う？</span></button>
-      <button data-go="chat"><strong>会話シミュレーション</strong><span>カフェ・職場・再会の4シーン</span></button>
+      <button data-go="chat"><strong>会話シミュレーション</strong><span>カフェ・ホテル・レストランなど6シーン</span></button>
       <button data-go="review" ${weakN ? "" : "disabled"}><strong>苦手を復習</strong><span>${weakN ? `間違えた ${weakN} フレーズ` : "まだありません"}</span></button>
       <button data-go="mic"><strong>声に出す</strong><span>聞いて、まねして、発音チェック</span></button>
     </section>
