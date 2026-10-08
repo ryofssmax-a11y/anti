@@ -1,0 +1,12 @@
+{
+  "name": "Belajar! インドネシア語入門",
+  "short_name": "Belajar!",
+  "description": "あいさつ・単語・会話をゲーム感覚で学べるインドネシア語入門アプリ",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fff8f0",
+  "theme_color": "#d62839",
+  "lang": "ja",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
