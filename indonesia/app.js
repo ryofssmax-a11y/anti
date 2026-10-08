@@ -107,14 +107,21 @@ function loadVoices() {
   idVoice = speechSynthesis.getVoices().find((v) => /^id([-_]|$)/i.test(v.lang)) || null;
 }
 if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+let voiceWarned = false;
 function speak(text, rate = 0.9) {
-  if (!('speechSynthesis' in window)) return;
+  if (!('speechSynthesis' in window)) { toast('このブラウザは音声読み上げに対応していません'); return; }
   try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'id-ID'; u.rate = rate; if (idVoice) u.voice = idVoice;
-    speechSynthesis.speak(u);
-  } catch (e) { /* noop */ }
+    loadVoices();
+    if (!idVoice && !voiceWarned) { voiceWarned = true; toast('インドネシア語の音声が見つかりません。端末の設定で音声を追加すると正しい発音で聞けます'); }
+    const ss = speechSynthesis;
+    ss.cancel(); ss.resume();
+    setTimeout(() => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'id-ID'; u.rate = rate; u.volume = 1; if (idVoice) u.voice = idVoice;
+      u.onerror = (e) => { if (e.error && e.error !== 'interrupted' && e.error !== 'canceled') toast('音声を再生できませんでした（' + e.error + '）'); };
+      ss.speak(u);
+    }, 60);
+  } catch (e) { toast('音声を再生できませんでした'); }
 }
 
 const fx = $('#fx'), fctx = fx.getContext('2d');
