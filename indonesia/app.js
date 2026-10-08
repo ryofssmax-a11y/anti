@@ -209,6 +209,18 @@ function checkBadges() {
   return got;
 }
 
+/* ---------- Android: 音声に対応したブラウザへの誘導 ---------- */
+const OPEN_URL = window.BELAJAR_URL || location.href;
+const isAndroid = /Android/i.test(navigator.userAgent);
+const isWebView = /; wv\)/.test(navigator.userAgent) || (/Android/.test(navigator.userAgent) && /Version\/\d+\.\d+ Chrome\//.test(navigator.userAgent));
+let hintHidden = false;
+try { hintHidden = sessionStorage.getItem('belajar-hint') === '1'; } catch (e) { /* noop */ }
+const needBrowserHint = () => isAndroid && !hintHidden && (!('speechSynthesis' in window) || isWebView);
+function chromeIntent() {
+  const m = /^https?:\/\/([^#]*)/.exec(OPEN_URL);
+  return m ? `intent://${m[1]}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(OPEN_URL)};end` : '';
+}
+
 /* ---------- views ---------- */
 const view = $('#view');
 let tab = 'home';
@@ -246,7 +258,9 @@ function renderHome() {
   const nextU = UNITS.findIndex((u, i) => unlocked(i) && crowns(u) < 1);
   const chestReady = done && !d.chest;
   const qs = todaysQuests();
+  const intent = chromeIntent();
   view.innerHTML = `
+    ${needBrowserHint() ? `<div class="card warn"><b>🔊 発音を聞くには Chrome で開いてください</b><div class="muted" style="color:inherit;margin:4px 0 8px">このブラウザ（アプリ内ブラウザ）では音声が出ない場合があります。</div><div class="row" style="flex-wrap:wrap;gap:8px">${intent ? `<a class="btn gold sm" href="${intent}" target="_blank" rel="noopener" style="text-decoration:none">Chromeで開く</a>` : ''}<button class="btn ghost sm" data-act="copyurl">URLをコピー</button><button class="link" data-act="hidehint">閉じる</button></div></div>` : ''}
     ${risk ? `<div class="card warn"><b>🔥 ${S.streak}日連続が途切れそう！</b><div class="muted" style="color:inherit">今日はあと約${hoursLeft()}時間。1レッスンで守れます${S.freezes ? `（🧊フリーズ×${S.freezes}）` : ''}。</div></div>` : ''}
     <div class="card"><div class="row">${ring(d.xp / S.goal, `${d.xp}<br>/${S.goal}`, done)}<div class="grow"><h3>今日の目標</h3><div class="muted">${msg}</div>
       ${chestReady ? '<button class="btn gold sm" style="margin-top:8px" data-act="chest">🎁 宝箱を開ける！</button>' : d.chest ? '<div class="muted" style="margin-top:6px">🎁 今日の宝箱は開封済み</div>' : '<div class="muted" style="margin-top:6px">🎁 達成すると宝箱が開きます</div>'}</div></div>
@@ -567,6 +581,12 @@ const acts = {
     if (!ALL.some((i) => S.words[i.id] && S.words[i.id].seen)) return toast('まずはレッスンを1つやってみよう！');
     startSession('review', null);
   },
+  copyurl: () => {
+    const done = () => toast('URLをコピーしました。Chromeに貼り付けて開いてください');
+    const fb = () => { const t = document.createElement('textarea'); t.value = OPEN_URL; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) { toast(OPEN_URL); } t.remove(); };
+    try { navigator.clipboard.writeText(OPEN_URL).then(done, fb); } catch (e) { fb(); }
+  },
+  hidehint: () => { hintHidden = true; try { sessionStorage.setItem('belajar-hint', '1'); } catch (e) { /* noop */ } render(); },
   say: (d) => speak(d.t),
   slow: (d) => speak(d.t, 0.55),
   quit,
