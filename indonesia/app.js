@@ -158,6 +158,16 @@ function modal({ em, title, text, btn = 'やったー！', rare = false, html = 
   });
 }
 
+function confirmModal(text, yes = 'はい', no = 'キャンセル') {
+  return new Promise((res) => {
+    const m = $('#modal');
+    m.hidden = false;
+    m.innerHTML = `<div class="mbox"><p style="color:var(--ink);font-weight:700">${text}</p><button class="btn red" id="myes">${yes}</button><button class="btn ghost" id="mno" style="margin-top:10px">${no}</button></div>`;
+    const done = (v) => { m.hidden = true; m.innerHTML = ''; res(v); };
+    $('#myes').onclick = () => done(true); $('#mno').onclick = () => done(false);
+  });
+}
+
 /* ---------- daily quests / badges / chest ---------- */
 const QPOOL = [
   [{ id: 'l1', t: 'レッスンを1回完了する', goal: 1, get: (d) => d.lessons, r: 10 }, { id: 'l2', t: 'レッスンを2回完了する', goal: 2, get: (d) => d.lessons, r: 20 }],
@@ -534,10 +544,11 @@ async function openChest() {
   for (const b of bs) { sfx.big(); confetti(100); await modal({ em: b.em, title: `バッジ獲得：${b.name}`, text: b.desc }); }
 }
 
-function quit() {
+async function quit() {
   if (!L) return;
-  if (L.i > 0 && !confirm('ここでやめますか？獲得したXPは残ります。')) return;
-  speechSynthesis && speechSynthesis.cancel && speechSynthesis.cancel();
+  if (L.i > 0 && !(await confirmModal('ここでやめますか？獲得したXPは残ります。', 'やめる', 'つづける'))) return;
+  if (!L) return;
+  try { speechSynthesis.cancel(); } catch (e) { /* noop */ }
   lesson.hidden = true; lesson.innerHTML = ''; document.body.style.overflow = ''; L = null; save(); render();
 }
 
@@ -560,7 +571,7 @@ const acts = {
     if (S.coins < 50) return toast('コインが足りません（50必要）');
     S.coins -= 50; S.freezes++; save(); sfx.coin(); render(); toast('🧊 ストリークフリーズを手に入れた！');
   },
-  reset: () => { if (confirm('学習データをすべて消します。よろしいですか？')) { S = fresh(); save(); tab = 'home'; render(); } },
+  reset: async () => { if (await confirmModal('学習データをすべて消します。よろしいですか？', '消す')) { S = fresh(); save(); tab = 'home'; render(); } },
 };
 document.addEventListener('click', (e) => {
   const t = e.target.closest('[data-act]');
