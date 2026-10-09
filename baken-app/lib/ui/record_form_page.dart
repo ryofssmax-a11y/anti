@@ -10,6 +10,7 @@ import 'calc/calc_output.dart';
 import 'calc/calculator_page.dart';
 import 'common.dart';
 import 'record_inputs.dart';
+import 'week_races.dart';
 
 /// 詳細記録。レースと買い目を入れて保存する。
 class RecordFormPage extends StatefulWidget {
@@ -106,6 +107,27 @@ class _RecordFormPageState extends State<RecordFormPage> {
       if (p.grade.isGraded && p.grade.index <= RaceGrade.g3.index) _raceNo = 11;
       _autoFilled = p.venue != null || p.surface != null;
     });
+  }
+
+  /// 週の重賞・1R〜最終R の一覧で選んだレースを入れる
+  void _applyPick(RacePick pick) {
+    final keepName = pick.name == null && !isGradedName(_name);
+    if (!keepName) _onRaceName(pick.name);
+    setState(() {
+      _date = pick.date;
+      if (pick.venue.isNotEmpty) _venue = pick.venue;
+      if (pick.raceNo != null) _raceNo = pick.raceNo!;
+    });
+  }
+
+  Future<void> _openRaceList() async {
+    final pick = await showDayRaceList(
+      context,
+      date: _date,
+      venue: _venue,
+      raceNo: _raceNo,
+    );
+    if (pick != null) _applyPick(pick);
   }
 
   Future<void> _pickBets() async {
@@ -272,6 +294,12 @@ class _RecordFormPageState extends State<RecordFormPage> {
             onChanged: (d) => setState(() => _date = d),
             enabled: !fixed,
           ),
+          if (!fixed)
+            WeekRacesPanel(
+              date: _date,
+              selectedName: _name,
+              onPick: _applyPick,
+            ),
           const FieldLabel('競馬場'),
           VenueChooser(
             venue: _venue,
@@ -284,6 +312,15 @@ class _RecordFormPageState extends State<RecordFormPage> {
             onChanged: (n) => setState(() => _raceNo = n),
             enabled: !fixed,
           ),
+          if (!fixed)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _openRaceList,
+                icon: const Icon(Icons.format_list_numbered),
+                label: const Text('この日の 1R〜最終R の一覧から選ぶ'),
+              ),
+            ),
           const FieldLabel('コース'),
           Wrap(
             spacing: 6,
@@ -529,6 +566,18 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
           ),
           const FieldLabel('日付'),
           DateChooser(date: _date, onChanged: (d) => setState(() => _date = d)),
+          WeekRacesPanel(
+            date: _date,
+            selectedName: _name,
+            onPick: (pick) => setState(() {
+              _date = pick.date;
+              _name = pick.name;
+              final v = pick.venue.isNotEmpty
+                  ? pick.venue
+                  : presetByName(pick.name)?.venue;
+              if (v != null) _venue = v;
+            }),
+          ),
           const FieldLabel('競馬場'),
           VenueChooser(
             venue: _venue,

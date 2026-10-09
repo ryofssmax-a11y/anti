@@ -102,6 +102,17 @@ class AppDatabase extends ChangeNotifier {
     return rows.isEmpty ? null : Race.fromRow(rows.first);
   }
 
+  /// その日に記録したレース
+  Future<List<Race>> racesOn(String date) async {
+    final rows = await _db.query(
+      'races',
+      where: 'date = ?',
+      whereArgs: [date],
+      orderBy: 'venue, race_no',
+    );
+    return rows.map(Race.fromRow).toList();
+  }
+
   /// 結果が未入力で、馬券が登録されているレース
   Future<List<Race>> pendingRaces() async {
     final rows = await _db.rawQuery('''
