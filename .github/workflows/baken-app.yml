@@ -1,0 +1,74 @@
+name: Build baken-app (Android APK)
+on:
+  push:
+    paths:
+      - "baken-app/**"
+      - ".github/workflows/baken-app.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: baken-app
+    env:
+      BAKEN_KEYSTORE: ${{ github.workspace }}/.signing/baken-release.jks
+      BAKEN_KEY_ALIAS: baken
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      # 署名鍵: 毎回同じ鍵で署名しないと、入っているアプリを上書き更新できない。
+      # リポジトリの Secrets に ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD があればそれを使う。
+      # なければ初回に鍵を作って Actions のキャッシュに保存し、以降のビルドで使い回す。
+      - name: Restore signing key from cache
+        id: keycache
+        uses: actions/cache@v4
+        with:
+          path: .signing
+          key: baken-signing-key-v1
+      - name: Prepare signing key
+        working-directory: .
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          mkdir -p .signing
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$BAKEN_KEYSTORE"
+            PASS="$KEYSTORE_PASSWORD"
+            if [ -n "$KEY_ALIAS" ]; then echo "BAKEN_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"; fi
+            echo "Using keystore from repository secrets"
+          else
+            PASS="baken-app-signing"
+            if [ ! -f "$BAKEN_KEYSTORE" ]; then
+              keytool -genkeypair -v -keystore "$BAKEN_KEYSTORE" -alias "$BAKEN_KEY_ALIAS" \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass "$PASS" -keypass "$PASS" -dname "CN=baken-app"
+              echo "Created a new signing key (cached for later builds)"
+            else
+              echo "Using cached signing key"
+            fi
+          fi
+          echo "BAKEN_KEYSTORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          echo "BAKEN_KEY_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          keytool -list -keystore "$BAKEN_KEYSTORE" -storepass "$PASS" | grep -i "SHA-256" || true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      # ビルド番号を毎回増やす（Android は古い番号への上書きを受け付けない）
+      - run: flutter build apk --release --build-number=${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baken-app-apk
+          path: baken-app/build/app/outputs/flutter-apk/app-release.apk
