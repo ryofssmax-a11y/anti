@@ -20,7 +20,11 @@
 ## Android 版（APK）の入手
 GitHub の Actions タブで「Build baken-app (Android APK)」を開き、最新の実行の Artifacts から `baken-app-apk` をダウンロードします。中の `app-release.apk` をスマホに入れてインストールします（提供元不明のアプリの許可が必要です）。
 
-この APK はテスト用の署名で作っています。Google Play に出すときは、自分の署名鍵を用意してください。
+### 署名と更新について
+APK は毎回同じ署名鍵で作るので、新しい APK をそのまま上書きインストールできます。鍵は初回のビルドで作り、GitHub Actions のキャッシュに保存して使い回します。
+
+- キャッシュは7日間ビルドがないと消えます。消えると鍵が作り直され、一度アンインストールしないと更新できなくなります。
+- ずっと同じ鍵を使うには、リポジトリの Settings → Secrets and variables → Actions に `ANDROID_KEYSTORE_BASE64`（鍵ファイルを base64 にした文字列）、`ANDROID_KEYSTORE_PASSWORD`、必要なら `ANDROID_KEY_ALIAS` を登録してください。登録すると、そちらを優先して使います。Google Play に出すときもこの方法にします。
 
 ## 自分でビルドする
 ```
