@@ -44,6 +44,7 @@ dependencies:
   shared_preferences: ^2.5.6
   flutter_localizations:
     sdk: flutter
+  sqflite_common_ffi_web: ^1.2.0
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +68,14 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # ブラウザ版は日本語フォントを読み込めないので同梱する（IPAフォントライセンスv1.0）
+  assets:
+    - assets/fonts/IPA_Font_License.txt
+  fonts:
+    - family: IPAGothic
+      fonts:
+        - asset: assets/fonts/IPAGothic.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/backup.dart';
+import '../data/cloud_sync.dart';
 import '../data/database.dart';
 import '../data/settings.dart';
 
@@ -12,6 +13,7 @@ class AppScope extends InheritedWidget {
     required this.db,
     required this.settings,
     this.backup,
+    this.cloud,
     required super.child,
   });
 
@@ -21,6 +23,9 @@ class AppScope extends InheritedWidget {
   /// 自動バックアップ（Android のみ。テストでは null）
   final BackupService? backup;
 
+  /// ブラウザ版の自動保存（アーティファクトのデータ保存。アプリ版では null）
+  final CloudSyncService? cloud;
+
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!;
 
@@ -29,7 +34,7 @@ class AppScope extends InheritedWidget {
       db != oldWidget.db || settings != oldWidget.settings;
 }
 
-final _yen = NumberFormat('#,##0', 'ja_JP');
+final _yen = NumberFormat('#,##0', 'ja');
 
 String yen(int v) => '${_yen.format(v)}円';
 

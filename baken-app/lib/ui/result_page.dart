@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -103,9 +104,14 @@ class _ResultPageState extends State<ResultPage> {
 
   Future<void> _paste() async {
     final controller = TextEditingController();
-    final clip = await Clipboard.getData(Clipboard.kTextPlain);
-    if (clip?.text != null && parsePayoutText(clip!.text!).count > 0) {
-      controller.text = clip.text!;
+    // ブラウザ版はクリップボードを読めないので、入力欄に貼り付けてもらう
+    if (!kIsWeb) {
+      try {
+        final clip = await Clipboard.getData(Clipboard.kTextPlain);
+        if (clip?.text != null && parsePayoutText(clip!.text!).count > 0) {
+          controller.text = clip.text!;
+        }
+      } catch (_) {}
     }
     if (!mounted) return;
     final text = await showDialog<String>(
@@ -130,14 +136,15 @@ class _ResultPageState extends State<ResultPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              TextButton.icon(
-                icon: const Icon(Icons.content_paste),
-                label: const Text('コピーした文字を貼り付け'),
-                onPressed: () async {
-                  final d = await Clipboard.getData(Clipboard.kTextPlain);
-                  if (d?.text != null) controller.text = d!.text!;
-                },
-              ),
+              if (!kIsWeb)
+                TextButton.icon(
+                  icon: const Icon(Icons.content_paste),
+                  label: const Text('コピーした文字を貼り付け'),
+                  onPressed: () async {
+                    final d = await Clipboard.getData(Clipboard.kTextPlain);
+                    if (d?.text != null) controller.text = d!.text!;
+                  },
+                ),
             ],
           ),
         ),

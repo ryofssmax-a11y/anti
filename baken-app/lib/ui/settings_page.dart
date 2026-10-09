@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../data/csv_io.dart';
+import '../platform/cloud.dart';
 import 'backup_section.dart';
 import 'common.dart';
 
@@ -85,13 +87,17 @@ class SettingsPage extends StatelessWidget {
       if (context.mounted) toast(context, '書き出す記録がありません');
       return;
     }
+    final csv = '\uFEFF${ticketsToCsv(tickets.reversed.toList())}';
+    final name = 'baken_${isoDate(today())}.csv';
+    if (kIsWeb) {
+      final ok = await saveTextFile(name, csv);
+      if (context.mounted && !ok) toast(context, 'ファイルを保存できませんでした');
+      return;
+    }
     final dir = await getTemporaryDirectory();
-    final file = File(p.join(dir.path, 'baken_${isoDate(today())}.csv'));
+    final file = File(p.join(dir.path, name));
     // Excel で文字化けしないよう BOM を付ける
-    await file.writeAsString(
-      '﻿${ticketsToCsv(tickets.reversed.toList())}',
-      encoding: utf8,
-    );
+    await file.writeAsString(csv, encoding: utf8);
     await SharePlus.instance.share(
       ShareParams(files: [XFile(file.path)], subject: '馬券の記録（CSV）'),
     );

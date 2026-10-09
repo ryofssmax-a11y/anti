@@ -91,7 +91,7 @@ class _Greeting extends StatelessWidget {
         ? 'こんにちは'
         : 'こんばんは';
     final message = switch (now.weekday) {
-      DateTime.saturday || DateTime.sunday => '今日は開催日。レースを楽しみましょう 🐎',
+      DateTime.saturday || DateTime.sunday => '今日は開催日。レースを楽しみましょう',
       DateTime.friday => '週末のレース、どれに注目していますか？',
       DateTime.monday => '週末の振り返りをしておきましょう',
       _ => '今週もおつかれさまです',
@@ -134,7 +134,7 @@ class _HeroCard extends StatelessWidget {
     final comment = totals.count == 0
         ? '最初の1枚を記録してみましょう'
         : rate! >= 100
-        ? 'プラス収支です 🎉 いい流れ！'
+        ? 'プラス収支です。いい流れ！'
         : rate >= 80
         ? 'あと少しでプラス圏です'
         : '記録を続けると、得意な条件が見えてきます';
@@ -550,7 +550,7 @@ class _HitCard extends StatelessWidget {
       child: ListTile(
         leading: const CircleAvatar(
           backgroundColor: Color(0xFFFFF3CD),
-          child: Text('🎯', style: TextStyle(fontSize: 20)),
+          child: Icon(Icons.emoji_events, color: Color(0xFFB8860B)),
         ),
         title: Row(
           children: [

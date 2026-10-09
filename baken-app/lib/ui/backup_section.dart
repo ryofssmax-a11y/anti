@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -9,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../data/backup.dart';
+import '../platform/cloud.dart';
 import 'common.dart';
 
 /// 設定画面のバックアップ欄
@@ -43,8 +45,14 @@ class BackupSection extends StatelessWidget {
   Future<void> _share(BuildContext context) async {
     final scope = AppScope.of(context);
     final json = await buildBackupJson(scope.db, scope.settings);
+    final name = dailyBackupName(today());
+    if (kIsWeb) {
+      final ok = await saveTextFile(name, json);
+      if (context.mounted && !ok) toast(context, 'ファイルを保存できませんでした');
+      return;
+    }
     final dir = await getTemporaryDirectory();
-    final file = File(p.join(dir.path, dailyBackupName(today())));
+    final file = File(p.join(dir.path, name));
     await file.writeAsString(json, encoding: utf8);
     await SharePlus.instance.share(
       ShareParams(files: [XFile(file.path)], subject: '馬券収支電卓のバックアップ'),
@@ -100,6 +108,46 @@ class BackupSection extends StatelessWidget {
                 style: t.labelLarge?.copyWith(color: scheme.primary),
               ),
             ),
+            if (scope.cloud case final cloud?)
+              ListenableBuilder(
+                listenable: cloud,
+                builder: (context, _) {
+                  final saved = cloud.lastSavedAt;
+                  final String status;
+                  if (cloud.available == null) {
+                    status = '確認しています…';
+                  } else if (cloud.available == false) {
+                    status =
+                        'サインインしていないため、このブラウザの中にだけ保存しています。バックアップファイルを残してください';
+                  } else if (cloud.lastError != null) {
+                    status = cloud.lastError!;
+                  } else {
+                    status = saved == null
+                        ? '記録を変えるたびに自動で保存します'
+                        : '最終 ${saved.month}/${saved.day} ${saved.hour}:${saved.minute.toString().padLeft(2, '0')}';
+                  }
+                  return ListTile(
+                    leading: Icon(
+                      cloud.available == true
+                          ? Icons.cloud_done_outlined
+                          : Icons.cloud_off_outlined,
+                    ),
+                    title: const Text('Claude に自動保存'),
+                    subtitle: Text(
+                      status,
+                      style: cloud.lastError != null
+                          ? TextStyle(color: scheme.error)
+                          : null,
+                    ),
+                    trailing: cloud.available == true
+                        ? TextButton(
+                            onPressed: cloud.saveNow,
+                            child: const Text('今すぐ'),
+                          )
+                        : null,
+                  );
+                },
+              ),
             if (canAuto) ...[
               ListTile(
                 leading: const Icon(Icons.folder_outlined),
@@ -141,8 +189,8 @@ class BackupSection extends StatelessWidget {
             ],
             ListTile(
               leading: const Icon(Icons.ios_share),
-              title: const Text('バックアップファイルを送る'),
-              subtitle: const Text('メールやドライブに保存できます'),
+              title: Text(kIsWeb ? 'バックアップファイルを保存' : 'バックアップファイルを送る'),
+              subtitle: Text(kIsWeb ? 'このブラウザの外に控えを残せます' : 'メールやドライブに保存できます'),
               onTap: () => _share(context),
             ),
             ListTile(
