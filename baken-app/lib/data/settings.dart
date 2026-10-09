@@ -75,6 +75,24 @@ class AppSettings extends ChangeNotifier {
     await _prefs.setString('lastChannel', channel);
   }
 
+  /// 自分で登録したレース名（新しい順）
+  List<String> get customRaceNames =>
+      _prefs.getStringList('customRaceNames') ?? const [];
+
+  Future<void> addCustomRaceName(String name) async {
+    final list = [name, ...customRaceNames.where((n) => n != name)];
+    await _prefs.setStringList('customRaceNames', list);
+    notifyListeners();
+  }
+
+  Future<void> removeCustomRaceName(String name) async {
+    await _prefs.setStringList(
+      'customRaceNames',
+      customRaceNames.where((n) => n != name).toList(),
+    );
+    notifyListeners();
+  }
+
   /// 1点あたりの金額の初期値
   int get defaultUnit => _prefs.getInt('defaultUnit') ?? 100;
   Future<void> setDefaultUnit(int v) async {

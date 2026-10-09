@@ -158,4 +158,46 @@ void main() {
 
     await tester.runAsync(() => db.close());
   });
+
+  testWidgets('レース名を自分で入力して登録する', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({'ageConfirmed': true});
+    late AppDatabase db;
+    late AppSettings settings;
+    await tester.runAsync(() async {
+      await initializeDateFormatting('ja_JP');
+      db = await AppDatabase.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      settings = await AppSettings.load();
+    });
+    await tester.pumpWidget(BakenApp(db: db, settings: settings));
+    await settle(tester);
+
+    await tapText(tester, 'かんたん記録');
+    // 記録画面の「入力」ボタンから直接入力
+    await tapText(tester, '入力');
+    await tester.enterText(find.byType(TextField).last, '鷹巣山特別');
+    await tapText(tester, '登録して使う');
+    expect(find.text('鷹巣山特別'), findsOneWidget);
+    expect(settings.customRaceNames, ['鷹巣山特別']);
+
+    // 選択画面の「登録した名前」に出る
+    await tapText(tester, '鷹巣山特別');
+    expect(find.text('登録した名前'), findsWidgets);
+    expect(find.text('鷹巣山特別'), findsOneWidget);
+
+    // 検索して一覧にない名前は、そのまま登録して使える
+    await tester.enterText(find.byType(TextField).first, '浦和桜花賞');
+    await settle(tester);
+    await tapText(tester, '「浦和桜花賞」で登録して使う');
+    expect(find.text('浦和桜花賞'), findsOneWidget);
+    expect(settings.customRaceNames, ['浦和桜花賞', '鷹巣山特別']);
+
+    await tester.runAsync(() => db.close());
+  });
 }

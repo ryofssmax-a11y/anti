@@ -50,6 +50,7 @@ class GradeBadge extends StatelessWidget {
 /// 一覧の絞り込み
 enum _Filter {
   all('すべて', null),
+  mine('登録した名前', null),
   history('最近', null),
   g1('G1', {RaceGrade.g1}),
   g2('G2', {RaceGrade.g2}),
@@ -64,7 +65,53 @@ enum _Filter {
   final Set<RaceGrade>? grades;
 }
 
-/// レース名を選ぶ画面。名前（文字列）を返す。一覧にない名前もそのまま使える。
+/// レース名を自分で入力するダイアログ。入力した名前は「登録した名前」に保存する。
+Future<String?> showRaceNameInputDialog(
+  BuildContext context, {
+  String? initial,
+}) async {
+  final controller = TextEditingController(text: initial ?? '');
+  final name = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('レース名を入力'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 40,
+            decoration: const InputDecoration(
+              hintText: '例: 鷹巣山特別、浦和桜花賞',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+          ),
+          const Text('入力した名前は登録され、次から一覧で選べます。'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('キャンセル'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+          child: const Text('登録して使う'),
+        ),
+      ],
+    ),
+  );
+  if (name == null || name.isEmpty || !context.mounted) return null;
+  if (presetByName(name) == null) {
+    await AppScope.of(context).settings.addCustomRaceName(name);
+  }
+  return name;
+}
+
+/// レース名を選ぶ画面。名前（文字列）を返す。一覧にない名前は自分で入力して登録できる。
 class RaceNamePickerPage extends StatefulWidget {
   const RaceNamePickerPage({super.key, this.initial});
 
@@ -84,9 +131,36 @@ class _RaceNamePickerPageState extends State<RaceNamePickerPage> {
     super.dispose();
   }
 
+  Future<void> _input([String? initial]) async {
+    final name = await showRaceNameInputDialog(context, initial: initial);
+    if (name != null && mounted) Navigator.pop(context, name);
+  }
+
+  Future<void> _useFree(String name) async {
+    if (presetByName(name) == null) {
+      await AppScope.of(context).settings.addCustomRaceName(name);
+    }
+    if (mounted) Navigator.pop(context, name);
+  }
+
+  Future<void> _remove(String name) async {
+    final ok = await confirm(
+      context,
+      '登録した名前を削除',
+      '「$name」を一覧から外します。記録済みのレース名はそのまま残ります。',
+      ok: '削除',
+      destructive: true,
+    );
+    if (ok && mounted) {
+      await AppScope.of(context).settings.removeCustomRaceName(name);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final settings = AppScope.of(context).settings;
     final q = _query.text.trim();
     return Scaffold(
       appBar: AppBar(
@@ -99,7 +173,7 @@ class _RaceNamePickerPageState extends State<RaceNamePickerPage> {
           ),
           onChanged: (_) => setState(() {}),
           onSubmitted: (v) {
-            if (v.trim().isNotEmpty) Navigator.pop(context, v.trim());
+            if (v.trim().isNotEmpty) _useFree(v.trim());
           },
         ),
         actions: [
@@ -132,49 +206,105 @@ class _RaceNamePickerPageState extends State<RaceNamePickerPage> {
             ),
           ),
           Expanded(
-            child: DbQuery<List<String>>(
-              load: (db) => db.recentRaceNames(),
-              builder: (context, recent) {
-                final items = _items(q, recent);
-                return ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (context, i) {
-                    final it = items[i];
-                    if (it is String) {
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                        child: Text(
-                          it,
-                          style: t.titleSmall?.copyWith(
-                            color: Theme.of(context).colorScheme.primary,
+            child: ListenableBuilder(
+              listenable: settings,
+              builder: (context, _) => DbQuery<List<String>>(
+                load: (db) => db.recentRaceNames(),
+                builder: (context, recent) {
+                  final custom = settings.customRaceNames;
+                  final items = _items(q, recent, custom);
+                  return ListView.builder(
+                    itemCount: items.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: scheme.primaryContainer,
+                            child: Icon(
+                              Icons.edit,
+                              color: scheme.onPrimaryContainer,
+                            ),
+                          ),
+                          title: Text(
+                            q.isNotEmpty && presetByName(q) == null
+                                ? '「$q」で登録して使う'
+                                : '自分で入力して登録',
+                          ),
+                          subtitle: const Text('一覧にないレース名を登録できます'),
+                          onTap: () => q.isNotEmpty && presetByName(q) == null
+                              ? _useFree(q)
+                              : _input(),
+                        );
+                      }
+                      final it = items[index - 1];
+                      if (it is String) {
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                          child: Text(
+                            it,
+                            style: t.titleSmall?.copyWith(
+                              color: scheme.primary,
+                            ),
+                          ),
+                        );
+                      }
+                      if (it is _Custom) {
+                        return ListTile(
+                          leading: const SizedBox(
+                            width: 48,
+                            child: Center(child: Icon(Icons.bookmark_outline)),
+                          ),
+                          title: Text(it.name),
+                          subtitle: const Text('登録した名前'),
+                          selected: it.name == widget.initial,
+                          onTap: () => Navigator.pop(context, it.name),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: '名前を直す',
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: () async {
+                                  final name = await showRaceNameInputDialog(
+                                    context,
+                                    initial: it.name,
+                                  );
+                                  if (name != null &&
+                                      name != it.name &&
+                                      context.mounted) {
+                                    await settings.removeCustomRaceName(
+                                      it.name,
+                                    );
+                                  }
+                                },
+                              ),
+                              IconButton(
+                                tooltip: '削除',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () => _remove(it.name),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      final p = it as RacePreset;
+                      final badge = GradeBadge.forName(p.name);
+                      return ListTile(
+                        leading: SizedBox(
+                          width: 48,
+                          child: Center(
+                            child: badge ?? const Icon(Icons.flag_outlined),
                           ),
                         ),
+                        title: Text(p.name),
+                        subtitle: p.detail.isEmpty ? null : Text(p.detail),
+                        selected: p.name == widget.initial,
+                        onTap: () => Navigator.pop(context, p.name),
                       );
-                    }
-                    if (it is _Free) {
-                      return ListTile(
-                        leading: const Icon(Icons.edit),
-                        title: Text('「${it.name}」をレース名にする'),
-                        onTap: () => Navigator.pop(context, it.name),
-                      );
-                    }
-                    final p = it as RacePreset;
-                    final badge = GradeBadge.forName(p.name);
-                    return ListTile(
-                      leading: SizedBox(
-                        width: 48,
-                        child: Center(
-                          child: badge ?? const Icon(Icons.flag_outlined),
-                        ),
-                      ),
-                      title: Text(p.name),
-                      subtitle: p.detail.isEmpty ? null : Text(p.detail),
-                      selected: p.name == widget.initial,
-                      onTap: () => Navigator.pop(context, p.name),
-                    );
-                  },
-                );
-              },
+                    },
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -182,27 +312,49 @@ class _RaceNamePickerPageState extends State<RaceNamePickerPage> {
     );
   }
 
-  /// 表示する行（見出し String・候補 RacePreset・自由入力 _Free）
-  List<Object> _items(String q, List<String> recent) {
+  /// 表示する行（見出し String・候補 RacePreset・登録した名前 _Custom）
+  List<Object> _items(String q, List<String> recent, List<String> custom) {
     final out = <Object>[];
-    if (q.isNotEmpty && presetByName(q) == null) out.add(_Free(q));
+    final nq = normalizeRaceText(q);
+    bool hit(String n) => q.isEmpty || normalizeRaceText(n).contains(nq);
 
-    final recentPresets = [
+    final mine = [
+      for (final n in custom)
+        if (hit(n)) _Custom(n),
+    ];
+    final recentItems = <Object>[
       for (final n in recent)
-        if (q.isEmpty || normalizeRaceText(n).contains(normalizeRaceText(q)))
-          presetByName(n) ?? RacePreset(n, RaceGrade.special),
+        if (hit(n))
+          if (presetByName(n) case final p?)
+            p
+          else if (custom.contains(n))
+            _Custom(n)
+          else
+            RacePreset(n, RaceGrade.special),
     ];
 
+    if (_filter == _Filter.mine) {
+      if (mine.isEmpty) out.add('登録した名前はまだありません。上の「自分で入力して登録」から追加できます');
+      out.addAll(mine);
+      return out;
+    }
     if (_filter == _Filter.history) {
-      if (recentPresets.isEmpty) out.add('まだ記録したレースはありません');
-      out.addAll(recentPresets);
+      if (recentItems.isEmpty) out.add('まだ記録したレースはありません');
+      out.addAll(recentItems);
       return out;
     }
 
-    if (_filter == _Filter.all && recentPresets.isNotEmpty && q.isEmpty) {
-      out
-        ..add('最近のレース')
-        ..addAll(recentPresets.take(5));
+    if (_filter == _Filter.all) {
+      if (mine.isNotEmpty) {
+        out
+          ..add('登録した名前')
+          ..addAll(mine);
+      }
+      if (recentItems.isNotEmpty && q.isEmpty) {
+        out
+          ..add('最近のレース')
+          ..addAll(recentItems.take(5));
+      }
     }
 
     final found = searchRacePresets(q, grades: _filter.grades);
@@ -226,12 +378,14 @@ class _RaceNamePickerPageState extends State<RaceNamePickerPage> {
         ..add(label)
         ..addAll(part);
     }
-    if (found.isEmpty && q.isNotEmpty) out.add('一覧に見つかりません。上の行からそのまま使えます');
+    if (found.isEmpty && mine.isEmpty && q.isNotEmpty) {
+      out.add('一覧に見つかりません。上の行から登録して使えます');
+    }
     return out;
   }
 }
 
-class _Free {
-  const _Free(this.name);
+class _Custom {
+  const _Custom(this.name);
   final String name;
 }

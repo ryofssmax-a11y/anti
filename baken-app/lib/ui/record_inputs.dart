@@ -101,8 +101,15 @@ class RaceNameField extends StatelessWidget {
                   icon: const Icon(Icons.close),
                   onPressed: () => onPicked(null),
                 )
-              else
-                const Icon(Icons.chevron_right),
+              else if (enabled)
+                TextButton.icon(
+                  onPressed: () async {
+                    final n = await showRaceNameInputDialog(context);
+                    if (n != null) onPicked(n);
+                  },
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: const Text('入力'),
+                ),
             ],
           ),
         ),
