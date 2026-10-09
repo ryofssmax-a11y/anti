@@ -253,6 +253,10 @@ void main() {
 
     // 払戻金の表を貼り付ける
     await tapText(tester, '払戻金の表を貼り付けて読み取る');
+    // 「払戻金の表」の説明を開ける
+    await tapText(tester, '貼り付ける「払戻金の表」とは？');
+    expect(find.text('38,450円'), findsOneWidget);
+    expect(find.text('読み取れる書き方'), findsOneWidget);
     await tester.enterText(
       find.byType(TextField).last,
       '単勝 7 1,250円 4番人気\n馬連 3-7 1,640円 5番人気\n3連単 7-3-12 38,450円 121番人気',
