@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../data/csv_io.dart';
+import 'backup_section.dart';
 import 'common.dart';
 
 /// 設定タブ
@@ -165,11 +166,12 @@ class SettingsPage extends StatelessWidget {
                 onChanged: s.setDefaultUnit,
               ),
             ),
+            const BackupSection(),
             const _Header('データ'),
             ListTile(
               leading: const Icon(Icons.upload_file),
               title: const Text('CSV に書き出す'),
-              subtitle: const Text('機種変更やバックアップに使えます'),
+              subtitle: const Text('表計算ソフトで見るときに使えます'),
               onTap: () => _export(context),
             ),
             ListTile(

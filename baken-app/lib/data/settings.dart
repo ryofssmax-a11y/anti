@@ -93,6 +93,77 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- 自動バックアップ ----
+
+  /// バックアップ先のフォルダ（Android のフォルダ選択で得た URI と表示名）
+  String? get backupFolderUri => _prefs.getString('backupFolderUri');
+  String? get backupFolderName => _prefs.getString('backupFolderName');
+  bool get autoBackup => _prefs.getBool('autoBackup') ?? false;
+  DateTime? get lastBackupAt {
+    final ms = _prefs.getInt('lastBackupAt');
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  String? get lastBackupError => _prefs.getString('lastBackupError');
+
+  Future<void> setBackupFolder(String uri, String name) async {
+    await _prefs.setString('backupFolderUri', uri);
+    await _prefs.setString('backupFolderName', name);
+    await _prefs.setBool('autoBackup', true);
+    notifyListeners();
+  }
+
+  Future<void> setAutoBackup(bool on) async {
+    await _prefs.setBool('autoBackup', on);
+    notifyListeners();
+  }
+
+  Future<void> recordBackupResult({String? error}) async {
+    if (error == null) {
+      await _prefs.setInt(
+        'lastBackupAt',
+        DateTime.now().millisecondsSinceEpoch,
+      );
+      await _prefs.remove('lastBackupError');
+    } else {
+      await _prefs.setString('lastBackupError', error);
+    }
+    notifyListeners();
+  }
+
+  /// バックアップに含める設定
+  static const _backupKeys = [
+    'customRaceNames',
+    'templates',
+    'budgetDay',
+    'budgetWeek',
+    'budgetMonth',
+    'defaultUnit',
+    'lastVenue',
+    'lastChannel',
+  ];
+
+  Map<String, Object?> exportForBackup() => {
+    for (final k in _backupKeys)
+      if (_prefs.get(k) != null) k: _prefs.get(k),
+  };
+
+  Future<void> importFromBackup(Map<String, Object?> values) async {
+    for (final k in _backupKeys) {
+      final v = values[k];
+      if (v is String) {
+        await _prefs.setString(k, v);
+      } else if (v is int) {
+        await _prefs.setInt(k, v);
+      } else if (v is bool) {
+        await _prefs.setBool(k, v);
+      } else if (v is List) {
+        await _prefs.setStringList(k, v.map((e) => '$e').toList());
+      }
+    }
+    notifyListeners();
+  }
+
   /// 1点あたりの金額の初期値
   int get defaultUnit => _prefs.getInt('defaultUnit') ?? 100;
   Future<void> setDefaultUnit(int v) async {

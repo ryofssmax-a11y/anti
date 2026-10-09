@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'data/backup.dart';
 import 'data/database.dart';
 import 'data/settings.dart';
 import 'ui/common.dart';
@@ -12,14 +15,23 @@ Future<void> main() async {
   await initializeDateFormatting('ja_JP');
   final db = await AppDatabase.open();
   final settings = await AppSettings.load();
-  runApp(BakenApp(db: db, settings: settings));
+  final backup = Platform.isAndroid
+      ? (BackupService(db: db, settings: settings)..start())
+      : null;
+  runApp(BakenApp(db: db, settings: settings, backup: backup));
 }
 
 class BakenApp extends StatelessWidget {
-  const BakenApp({super.key, required this.db, required this.settings});
+  const BakenApp({
+    super.key,
+    required this.db,
+    required this.settings,
+    this.backup,
+  });
 
   final AppDatabase db;
   final AppSettings settings;
+  final BackupService? backup;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +45,7 @@ class BakenApp extends StatelessWidget {
     return AppScope(
       db: db,
       settings: settings,
+      backup: backup,
       child: MaterialApp(
         title: '馬券収支電卓',
         debugShowCheckedModeBanner: false,

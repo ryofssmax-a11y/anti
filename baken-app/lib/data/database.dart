@@ -175,6 +175,154 @@ class AppDatabase extends ChangeNotifier {
     return id;
   }
 
+  /// 1件の馬券（買い目つき）
+  Future<Ticket?> ticketById(int id) async {
+    final rows = await _db.query('tickets', where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    return Ticket.fromRow(rows.first, await linesFor(id));
+  }
+
+  /// 馬券を編集して保存する。
+  ///
+  /// レース（日付・競馬場・レース番号）か買い目が変わったときは、その馬券を未確定に戻し、
+  /// レースも結果待ちに戻す。メモやレース名だけの変更なら確定状態はそのまま。
+  /// 戻り値は、確定が外れたかどうか。
+  Future<bool> updateTicket(
+    Ticket updated, {
+    Race? race,
+    required bool linesChanged,
+  }) async {
+    final unsettled = await _db.transaction((txn) async {
+      final id = updated.id!;
+      final oldRows = await txn.query(
+        'tickets',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (oldRows.isEmpty) return false;
+      final old = Ticket.fromRow(oldRows.first);
+      final oldRaceId = old.raceId;
+
+      int? raceId;
+      if (race != null) {
+        final existing = await txn.query(
+          'races',
+          columns: ['id'],
+          where: 'date = ? AND venue = ? AND race_no = ?',
+          whereArgs: [race.date, race.venue, race.raceNo],
+        );
+        if (existing.isEmpty) {
+          raceId = await txn.insert('races', race.toRow()..remove('id'));
+        } else {
+          raceId = existing.first['id'] as int;
+          await txn.update(
+            'races',
+            {
+              'name': race.name,
+              'surface': race.surface,
+              'distance': race.distance,
+            },
+            where: 'id = ?',
+            whereArgs: [raceId],
+          );
+        }
+        // 同じレースの他の馬券もレース名をそろえる
+        await txn.update(
+          'tickets',
+          {'race_name': race.name},
+          where: 'race_id = ?',
+          whereArgs: [raceId],
+        );
+      }
+
+      final raceChanged = raceId != oldRaceId;
+      final reset = !updated.simple && (linesChanged || raceChanged);
+      final row = updated.copyWith(raceId: raceId).toRow()
+        ..remove('id')
+        ..remove('created_at');
+      if (!updated.simple) {
+        if (reset) {
+          row['settled'] = 0;
+          row['payout_total'] = 0;
+          row['stake_total'] = updated.lines.fold<int>(
+            0,
+            (s, l) => s + l.stake,
+          );
+        } else {
+          row
+            ..remove('settled')
+            ..remove('payout_total')
+            ..remove('stake_total');
+        }
+      }
+      await txn.update('tickets', row, where: 'id = ?', whereArgs: [id]);
+
+      if (reset) {
+        await txn.delete(
+          'ticket_lines',
+          where: 'ticket_id = ?',
+          whereArgs: [id],
+        );
+        for (final line in updated.lines) {
+          await txn.insert(
+            'ticket_lines',
+            TicketLine(
+              combo: line.combo,
+              stake: line.stake,
+              oddsX10: line.oddsX10,
+            ).toRow(id)..remove('id'),
+          );
+        }
+        if (raceId != null) {
+          await txn.update(
+            'races',
+            {'settled': 0},
+            where: 'id = ?',
+            whereArgs: [raceId],
+          );
+        }
+      }
+
+      if (oldRaceId != null && raceChanged) {
+        final left = Sqflite.firstIntValue(
+          await txn.rawQuery('SELECT COUNT(*) FROM tickets WHERE race_id = ?', [
+            oldRaceId,
+          ]),
+        );
+        if ((left ?? 0) == 0) {
+          await txn.delete('races', where: 'id = ?', whereArgs: [oldRaceId]);
+        }
+      }
+      return reset;
+    });
+    notifyListeners();
+    return unsettled;
+  }
+
+  // ---- バックアップ ----
+
+  static const _tables = ['races', 'payouts', 'tickets', 'ticket_lines'];
+
+  /// すべての記録を表ごとの行の一覧にして返す（バックアップ用）
+  Future<Map<String, List<Map<String, Object?>>>> exportTables() async => {
+    for (final t in _tables) t: await _db.query(t),
+  };
+
+  /// バックアップから記録をすべて置き換える。
+  Future<void> importTables(Map<String, Object?> tables) async {
+    await _db.transaction((txn) async {
+      for (final t in _tables.reversed) {
+        await txn.delete(t);
+      }
+      for (final t in _tables) {
+        for (final row in (tables[t] as List? ?? const [])) {
+          await txn.insert(t, (row as Map).cast<String, Object?>());
+        }
+      }
+    });
+    notifyListeners();
+  }
+
   Future<void> deleteTicket(int id) async {
     await _db.transaction((txn) async {
       final rows = await txn.query(

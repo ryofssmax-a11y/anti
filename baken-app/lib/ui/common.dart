@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../data/backup.dart';
 import '../data/database.dart';
 import '../data/settings.dart';
 
@@ -10,11 +11,15 @@ class AppScope extends InheritedWidget {
     super.key,
     required this.db,
     required this.settings,
+    this.backup,
     required super.child,
   });
 
   final AppDatabase db;
   final AppSettings settings;
+
+  /// 自動バックアップ（Android のみ。テストでは null）
+  final BackupService? backup;
 
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!;

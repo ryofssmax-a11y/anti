@@ -13,34 +13,61 @@ import 'record_inputs.dart';
 
 /// 詳細記録。レースと買い目を入れて保存する。
 class RecordFormPage extends StatefulWidget {
-  const RecordFormPage({super.key, this.prefill, this.race});
+  const RecordFormPage({super.key, this.prefill, this.race, this.editing});
 
   /// 計算画面から渡された買い目
   final CalcOutput? prefill;
 
-  /// 同じレースに馬券を追加するとき
+  /// 同じレースに馬券を追加するとき（[editing] があるときは、編集する馬券のレース）
   final Race? race;
+
+  /// 編集する馬券
+  final Ticket? editing;
 
   @override
   State<RecordFormPage> createState() => _RecordFormPageState();
 }
 
 class _RecordFormPageState extends State<RecordFormPage> {
-  late DateTime _date = widget.race == null
+  late final Ticket? _editing = widget.editing;
+  late DateTime _date = _editing != null
+      ? DateTime.parse(_editing.date)
+      : widget.race == null
       ? today()
       : DateTime.parse(widget.race!.date);
   String _venue = jraVenues[4];
-  late int _raceNo = widget.race?.raceNo ?? 11;
-  late String? _name = widget.race?.name;
+  late int _raceNo = _editing?.raceNo ?? widget.race?.raceNo ?? 11;
+  late String? _name = _editing?.raceName ?? widget.race?.name;
   late String? _surface = widget.race?.surface;
   late int? _distance = widget.race?.distance;
   late int _fieldSize =
-      widget.prefill?.selection.fieldSize ?? widget.race?.fieldSize ?? 18;
-  Channel _channel = Channel.online;
-  final _tags = TextEditingController();
-  final _memo = TextEditingController();
-  late CalcOutput? _bets = widget.prefill;
+      widget.prefill?.selection.fieldSize ??
+      _editing?.selection?.fieldSize ??
+      widget.race?.fieldSize ??
+      18;
+  late Channel _channel = _editing?.channel ?? Channel.online;
+  late final _tags = TextEditingController(text: _editing?.tags ?? '');
+  late final _memo = TextEditingController(text: _editing?.memo ?? '');
+  late CalcOutput? _bets = widget.prefill ?? _existingBets();
+  bool _betsChanged = false;
   bool _saving = false;
+
+  /// 編集中の馬券の買い目（選択内容がない古い記録は、券種だけの仮の選択にする）
+  CalcOutput? _existingBets() {
+    final t = _editing;
+    if (t == null || t.simple) return null;
+    final sel =
+        t.selection ??
+        Selection(
+          type: t.type ?? BetType.win,
+          method: t.method ?? BetMethod.normal,
+          fieldSize: widget.race?.fieldSize ?? 18,
+        );
+    return CalcOutput(selection: sel, lines: t.lines);
+  }
+
+  /// レース欄を変えられないか（同じレースに馬券を足すとき）
+  bool get _fixed => widget.race != null && _editing == null;
   bool _autoFilled = false;
   bool _initialized = false;
 
@@ -49,7 +76,9 @@ class _RecordFormPageState extends State<RecordFormPage> {
     super.didChangeDependencies();
     if (_initialized) return;
     _initialized = true;
-    if (widget.race != null) {
+    if (_editing != null) {
+      _venue = _editing.venue;
+    } else if (widget.race != null) {
       _venue = widget.race!.venue;
     } else {
       final s = AppScope.of(context).settings;
@@ -93,6 +122,7 @@ class _RecordFormPageState extends State<RecordFormPage> {
     if (out != null) {
       setState(() {
         _bets = out;
+        _betsChanged = true;
         _fieldSize = out.selection.fieldSize;
       });
     }
@@ -118,6 +148,8 @@ class _RecordFormPageState extends State<RecordFormPage> {
       fieldSize: sel.type == BetType.win5 ? _fieldSize : sel.fieldSize,
     );
     final ticket = Ticket(
+      id: _editing?.id,
+      createdAt: _editing?.createdAt,
       date: date,
       venue: _venue,
       raceNo: _raceNo,
@@ -131,6 +163,20 @@ class _RecordFormPageState extends State<RecordFormPage> {
       memo: _memo.text.trim(),
       lines: bets.lines,
     );
+    if (_editing != null) {
+      final unsettled = await scope.db.updateTicket(
+        ticket,
+        race: race,
+        linesChanged: _betsChanged,
+      );
+      if (!mounted) return;
+      toast(
+        context,
+        unsettled && _editing.settled ? '更新しました。レースの結果を入れ直してください' : '更新しました',
+      );
+      Navigator.pop(context, true);
+      return;
+    }
     await scope.db.insertTicket(ticket, race: race);
     await scope.settings.rememberRecordInput(
       venue: _venue,
@@ -141,6 +187,20 @@ class _RecordFormPageState extends State<RecordFormPage> {
     if (!mounted) return;
     toast(context, '記録しました');
     Navigator.pop(context, true);
+  }
+
+  Future<void> _delete() async {
+    final t = _editing!;
+    final ok = await confirm(
+      context,
+      '馬券を削除',
+      '${t.typeLabel}（${yen(t.stakeTotal)}）を削除します。元に戻せません。',
+      ok: '削除',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    await AppScope.of(context).db.deleteTicket(t.id!);
+    if (mounted) Navigator.pop(context, true);
   }
 
   Future<void> _editDistance() async {
@@ -175,9 +235,25 @@ class _RecordFormPageState extends State<RecordFormPage> {
     final t = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final bets = _bets;
-    final fixed = widget.race != null;
+    final fixed = _fixed;
     return Scaffold(
-      appBar: AppBar(title: Text(fixed ? '馬券を追加' : '馬券を記録')),
+      appBar: AppBar(
+        title: Text(
+          _editing != null
+              ? '馬券を編集'
+              : fixed
+              ? '馬券を追加'
+              : '馬券を記録',
+        ),
+        actions: [
+          if (_editing != null)
+            IconButton(
+              tooltip: '削除',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _delete,
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
@@ -295,7 +371,11 @@ class _RecordFormPageState extends State<RecordFormPage> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: FilledButton(
             onPressed: _saving ? null : _save,
-            child: Text(bets == null ? '保存' : '保存（${yen(bets.total)}）'),
+            child: Text(
+              bets == null
+                  ? '保存'
+                  : '${_editing != null ? '更新' : '保存'}（${yen(bets.total)}）',
+            ),
           ),
         ),
       ),
@@ -305,21 +385,31 @@ class _RecordFormPageState extends State<RecordFormPage> {
 
 /// 簡易記録。投資額と払戻額だけを入れる。
 class SimpleRecordPage extends StatefulWidget {
-  const SimpleRecordPage({super.key});
+  const SimpleRecordPage({super.key, this.editing});
+
+  /// 編集する簡易記録
+  final Ticket? editing;
 
   @override
   State<SimpleRecordPage> createState() => _SimpleRecordPageState();
 }
 
 class _SimpleRecordPageState extends State<SimpleRecordPage> {
-  DateTime _date = today();
-  String _venue = jraVenues[4];
-  String? _name;
-  final _stake = TextEditingController();
-  final _payout = TextEditingController(text: '0');
-  final _memo = TextEditingController();
-  final _tags = TextEditingController();
-  Channel _channel = Channel.online;
+  late final Ticket? _editing = widget.editing;
+  late DateTime _date = _editing == null
+      ? today()
+      : DateTime.parse(_editing.date);
+  late String _venue = _editing?.venue ?? jraVenues[4];
+  late String? _name = _editing?.raceName;
+  late final _stake = TextEditingController(
+    text: _editing == null ? '' : '${_editing.stakeTotal}',
+  );
+  late final _payout = TextEditingController(
+    text: '${_editing?.payoutTotal ?? 0}',
+  );
+  late final _memo = TextEditingController(text: _editing?.memo ?? '');
+  late final _tags = TextEditingController(text: _editing?.tags ?? '');
+  late Channel _channel = _editing?.channel ?? Channel.online;
   bool _initialized = false;
 
   @override
@@ -327,6 +417,7 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
     super.didChangeDependencies();
     if (_initialized) return;
     _initialized = true;
+    if (_editing != null) return;
     final s = AppScope.of(context).settings;
     _venue = s.lastVenue ?? _venue;
     _channel = Channel.fromName(s.lastChannel);
@@ -350,6 +441,29 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
     }
     final scope = AppScope.of(context);
     final date = isoDate(_date);
+    if (_editing != null) {
+      await scope.db.updateTicket(
+        Ticket(
+          id: _editing.id,
+          createdAt: _editing.createdAt,
+          date: date,
+          venue: _venue,
+          raceName: _name,
+          channel: _channel,
+          stakeTotal: stake,
+          payoutTotal: payout,
+          settled: true,
+          simple: true,
+          memo: _memo.text.trim(),
+          tags: _tags.text.trim(),
+        ),
+        linesChanged: false,
+      );
+      if (!mounted) return;
+      toast(context, '更新しました');
+      Navigator.pop(context, true);
+      return;
+    }
     await scope.db.insertTicket(
       Ticket(
         date: date,
@@ -378,7 +492,28 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('簡易記録')),
+      appBar: AppBar(
+        title: Text(_editing == null ? '簡易記録' : '簡易記録を編集'),
+        actions: [
+          if (_editing != null)
+            IconButton(
+              tooltip: '削除',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                final ok = await confirm(
+                  context,
+                  '簡易記録を削除',
+                  '${jpDate(_editing.date)} ${_editing.venue}（${yen(_editing.stakeTotal)}）を削除しますか？',
+                  ok: '削除',
+                  destructive: true,
+                );
+                if (!ok || !context.mounted) return;
+                await AppScope.of(context).db.deleteTicket(_editing.id!);
+                if (context.mounted) Navigator.pop(context, true);
+              },
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
@@ -466,7 +601,10 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: FilledButton(onPressed: _save, child: const Text('保存')),
+          child: FilledButton(
+            onPressed: _save,
+            child: Text(_editing == null ? '保存' : '更新'),
+          ),
         ),
       ),
     );

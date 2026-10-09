@@ -203,6 +203,12 @@ class _RacePageState extends State<RacePage> {
               onManualSettle: () => _manualSettle(ticket),
               onUnsettle: () =>
                   AppScope.of(context).db.unsettleTicket(ticket.id!),
+              onEdit: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RecordFormPage(editing: ticket, race: race),
+                ),
+              ),
             ),
         ],
       ),
@@ -216,12 +222,14 @@ class _TicketCard extends StatelessWidget {
     required this.onDelete,
     required this.onManualSettle,
     required this.onUnsettle,
+    required this.onEdit,
   });
 
   final Ticket ticket;
   final VoidCallback onDelete;
   final VoidCallback onManualSettle;
   final VoidCallback onUnsettle;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -292,6 +300,11 @@ class _TicketCard extends StatelessWidget {
           OverflowBar(
             alignment: MainAxisAlignment.end,
             children: [
+              TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('編集'),
+              ),
               if (ticket.settled)
                 TextButton(onPressed: onUnsettle, child: const Text('未確定に戻す'))
               else

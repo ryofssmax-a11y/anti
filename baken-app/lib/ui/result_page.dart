@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/bet_type.dart';
 import '../core/expander.dart';
 import '../core/judge.dart';
+import '../core/payout_parser.dart';
 import '../core/selection.dart';
 import '../data/models.dart';
 import 'calc/number_grid.dart';
@@ -29,6 +31,13 @@ class _ResultPageState extends State<ResultPage> {
   List<({BetType type, String combo})>? _hits;
   final Map<String, TextEditingController> _payouts = {};
   bool _saving = false;
+
+  /// 貼り付けで読み取った払戻金（payoutKey → 100円あたり）
+  final Map<String, int> _pasted = {};
+  String? _pasteInfo;
+
+  /// 記録時のオッズから仮に入れた払戻金のキー
+  final Set<String> _fromOdds = {};
 
   @override
   void dispose() {
@@ -67,20 +76,124 @@ class _ResultPageState extends State<ResultPage> {
     final db = AppScope.of(context).db;
     final hits = await db.hitsNeedingPayout(widget.race.id!, _outcome);
     final saved = await db.payoutsFor(widget.race.id!);
+    // 記録時にオッズを入れていれば、払戻金の目安にする
+    final odds = <String, int>{};
+    for (final t in await db.ticketsForRace(widget.race.id!)) {
+      final type = t.type;
+      if (type == null) continue;
+      for (final l in t.lines) {
+        if (l.oddsX10 != null) odds[payoutKey(type, l.combo)] = l.oddsX10! * 10;
+      }
+    }
     if (!mounted) return;
     for (final h in hits) {
       final key = payoutKey(h.type, h.combo);
-      _payouts.putIfAbsent(
-        key,
-        () => TextEditingController(text: saved[key]?.toString() ?? ''),
-      );
+      final c = _payouts.putIfAbsent(key, TextEditingController.new);
+      if (c.text.isNotEmpty) continue;
+      final v = saved[key] ?? _pasted[key];
+      if (v != null) {
+        c.text = '$v';
+      } else if (odds[key] != null) {
+        c.text = '${odds[key]}';
+        _fromOdds.add(key);
+      }
     }
     setState(() => _hits = hits);
   }
 
+  Future<void> _paste() async {
+    final controller = TextEditingController();
+    final clip = await Clipboard.getData(Clipboard.kTextPlain);
+    if (clip?.text != null && parsePayoutText(clip!.text!).count > 0) {
+      controller.text = clip.text!;
+    }
+    if (!mounted) return;
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('払戻金の表を貼り付け'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('JRA や競馬サイトのレース結果ページで、払戻金の表をコピーして貼り付けてください。'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 8,
+                minLines: 5,
+                decoration: const InputDecoration(
+                  hintText: '単勝 7 1,250円\n馬連 3-7 1,640円\n3連単 7-3-12 38,450円 …',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.content_paste),
+                label: const Text('コピーした文字を貼り付け'),
+                onPressed: () async {
+                  final d = await Clipboard.getData(Clipboard.kTextPlain);
+                  if (d?.text != null) controller.text = d!.text!;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('読み取る'),
+          ),
+        ],
+      ),
+    );
+    if (text == null || !mounted) return;
+    final parsed = parsePayoutText(text);
+    if (parsed.isEmpty) {
+      toast(context, '払戻金を読み取れませんでした。表の部分をコピーしてください');
+      return;
+    }
+    var placed = false;
+    setState(() {
+      _pasted.clear();
+      parsed.payouts.forEach((type, m) {
+        m.forEach((combo, v) => _pasted[payoutKey(type, combo)] = v);
+      });
+      for (final e in _pasted.entries) {
+        final c = _payouts[e.key];
+        if (c != null) {
+          c.text = '${e.value}';
+          _fromOdds.remove(e.key);
+        }
+      }
+      final p = parsed.placings;
+      final noRanks = _ranks.values.every((r) => r.isEmpty);
+      if (p != null &&
+          noRanks &&
+          p.values.every((h) => h.every((n) => n <= _fieldSize))) {
+        for (final e in p.entries) {
+          _ranks[e.key] = {...e.value};
+        }
+        placed = true;
+      }
+      _pasteInfo =
+          '${parsed.payouts.length}券種・${parsed.count}件の払戻金を読み取りました'
+          '${placed ? '。3連単から着順も入れました' : ''}';
+      _hits = null;
+    });
+    if (placed || _ranks[1]!.isNotEmpty) await _judge();
+  }
+
   Future<void> _save() async {
     final hits = _hits ?? const [];
-    final payouts = <String, int>{};
+    // 読み取った払戻金はすべて保存しておく（あとで馬券を足したときに使える）
+    final payouts = <String, int>{..._pasted};
     for (final h in hits) {
       final key = payoutKey(h.type, h.combo);
       final v = int.tryParse(_payouts[key]!.text.replaceAll(',', ''));
@@ -108,6 +221,22 @@ class _ResultPageState extends State<ResultPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          FilledButton.tonalIcon(
+            onPressed: _paste,
+            icon: const Icon(Icons.content_paste_go),
+            label: const Text('払戻金の表を貼り付けて読み取る'),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 8),
+            child: Text(
+              _pasteInfo ?? '結果ページの払戻金をコピーして貼り付けると、払戻金（と3連単から着順）をまとめて入れます。',
+              style: t.bodySmall?.copyWith(
+                color: _pasteInfo == null
+                    ? scheme.onSurfaceVariant
+                    : scheme.primary,
+              ),
+            ),
+          ),
           Row(
             children: [
               Text('出走頭数', style: t.bodyLarge),
@@ -187,8 +316,13 @@ class _ResultPageState extends State<ResultPage> {
                     labelText:
                         '${h.type.label} ${formatCombination(h.type, Combination.parse(h.combo, ordered: h.type.ordered))}',
                     suffixText: '円',
+                    helperText: _fromOdds.contains(payoutKey(h.type, h.combo))
+                        ? '記録時のオッズから計算。確定の払戻金と違えば直してください'
+                        : null,
                     border: const OutlineInputBorder(),
                   ),
+                  onChanged: (_) =>
+                      _fromOdds.remove(payoutKey(h.type, h.combo)),
                 ),
               ),
             const SizedBox(height: 16),

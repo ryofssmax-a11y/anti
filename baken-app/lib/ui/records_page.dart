@@ -292,7 +292,10 @@ class _SimpleRow extends StatelessWidget {
         ),
       ),
       onLongPress: () => _delete(context),
-      onTap: () => _delete(context),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => SimpleRecordPage(editing: ticket)),
+      ),
     );
   }
 

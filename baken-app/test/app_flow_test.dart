@@ -1,3 +1,6 @@
+import 'package:baken_app/ui/common.dart';
+import 'package:baken_app/data/models.dart';
+import 'package:baken_app/core/bet_type.dart';
 import 'package:baken_app/data/database.dart';
 import 'package:baken_app/data/settings.dart';
 import 'package:baken_app/main.dart';
@@ -197,6 +200,86 @@ void main() {
     await tapText(tester, '「浦和桜花賞」で登録して使う');
     expect(find.text('浦和桜花賞'), findsOneWidget);
     expect(settings.customRaceNames, ['浦和桜花賞', '鷹巣山特別']);
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('払戻金の表を貼り付けて結果を入れ、馬券を編集する', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({'ageConfirmed': true});
+    late AppDatabase db;
+    late AppSettings settings;
+    await tester.runAsync(() async {
+      await initializeDateFormatting('ja_JP');
+      db = await AppDatabase.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      settings = await AppSettings.load();
+      final d = isoDate(today());
+      await db.insertTicket(
+        Ticket(
+          date: d,
+          venue: '東京',
+          raceNo: 11,
+          raceName: '天皇賞（秋）',
+          type: BetType.quinella,
+          method: BetMethod.box,
+          stakeTotal: 300,
+          lines: [
+            TicketLine(combo: '3-7', stake: 100),
+            TicketLine(combo: '3-12', stake: 100),
+            TicketLine(combo: '7-12', stake: 100),
+          ],
+        ),
+        race: Race(
+          date: d,
+          venue: '東京',
+          raceNo: 11,
+          name: '天皇賞（秋）',
+          fieldSize: 16,
+        ),
+      );
+    });
+    await tester.pumpWidget(BakenApp(db: db, settings: settings));
+    await settle(tester);
+
+    // ホーム → 結果待ちのレース → 結果を入力
+    await tapText(tester, '結果を入れる');
+    await tapText(tester, '結果を入力');
+
+    // 払戻金の表を貼り付ける
+    await tapText(tester, '払戻金の表を貼り付けて読み取る');
+    await tester.enterText(
+      find.byType(TextField).last,
+      '単勝 7 1,250円 4番人気\n馬連 3-7 1,640円 5番人気\n3連単 7-3-12 38,450円 121番人気',
+    );
+    await tapText(tester, '読み取る');
+    expect(find.textContaining('3券種・3件の払戻金を読み取りました'), findsOneWidget);
+    // 3連単から着順が入り、判定まで進んで払戻金が入っている
+    await tester.scrollUntilVisible(
+      find.text('1640'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('1640'), findsOneWidget);
+    await tapText(tester, '保存して確定');
+    expect(find.text('+1,340円'), findsWidgets);
+
+    // 馬券を編集（メモだけ）→ 確定のまま
+    await tester.tap(find.textContaining('馬連 ボックス'));
+    await settle(tester);
+    await tapText(tester, '編集');
+    expect(find.text('馬券を編集'), findsOneWidget);
+    await tapText(tester, 'タグ・メモ（任意）');
+    await tester.enterText(find.byType(TextField).last, '本命から');
+    await tapText(tester, '更新（300円）');
+    expect(find.text('+1,340円'), findsWidgets);
+    // カードは開いたままなので、メモがそのまま見える
+    expect(find.textContaining('本命から'), findsOneWidget);
 
     await tester.runAsync(() => db.close());
   });
