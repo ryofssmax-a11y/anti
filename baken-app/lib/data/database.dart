@@ -102,6 +102,52 @@ class AppDatabase extends ChangeNotifier {
     return rows.isEmpty ? null : Race.fromRow(rows.first);
   }
 
+  /// レースを登録する（同じ日・競馬場・レース番号があれば、名前などを更新）。id を返す。
+  Future<int> upsertRace(Race race) async {
+    final id = await _db.transaction((txn) => _upsertRaceTxn(txn, race));
+    notifyListeners();
+    return id;
+  }
+
+  /// 馬券かレース結果が1件でもあるか
+  Future<bool> hasRecords() async =>
+      (Sqflite.firstIntValue(
+            await _db.rawQuery(
+              'SELECT (SELECT COUNT(*) FROM tickets) + (SELECT COUNT(*) FROM races)',
+            ),
+          ) ??
+          0) >
+      0;
+
+  /// 結果を入れたレースの数
+  Future<int> raceResultCount() async =>
+      Sqflite.firstIntValue(
+        await _db.rawQuery('SELECT COUNT(*) FROM races WHERE settled = 1'),
+      ) ??
+      0;
+
+  /// 結果を入れたレースと払戻金（新しい順）
+  Future<List<({Race race, Map<String, int> payouts})>> raceResults() async {
+    final races = (await _db.query(
+      'races',
+      where: 'settled = 1',
+      orderBy: 'date DESC, venue, race_no DESC',
+    )).map(Race.fromRow).toList();
+    final byRace = <int, Map<String, int>>{};
+    for (final r in await _db.query('payouts')) {
+      final type = BetType.fromName(r['bet_type'] as String?);
+      if (type == null) continue;
+      (byRace[r['race_id'] as int] ??= {})[payoutKey(
+            type,
+            r['combo'] as String,
+          )] =
+          r['payout_per_100'] as int;
+    }
+    return [
+      for (final race in races) (race: race, payouts: byRace[race.id] ?? {}),
+    ];
+  }
+
   /// その日に記録したレース
   Future<List<Race>> racesOn(String date) async {
     final rows = await _db.query(
@@ -301,7 +347,12 @@ class AppDatabase extends ChangeNotifier {
           ]),
         );
         if ((left ?? 0) == 0) {
-          await txn.delete('races', where: 'id = ?', whereArgs: [oldRaceId]);
+          // 結果を入れたレースは、レース結果として残す
+          await txn.delete(
+            'races',
+            where: 'id = ? AND settled = 0',
+            whereArgs: [oldRaceId],
+          );
         }
       }
       return reset;
@@ -351,7 +402,12 @@ class AppDatabase extends ChangeNotifier {
           ]),
         );
         if ((left ?? 0) == 0) {
-          await txn.delete('races', where: 'id = ?', whereArgs: [raceId]);
+          // 結果を入れたレースは、レース結果として残す
+          await txn.delete(
+            'races',
+            where: 'id = ? AND settled = 0',
+            whereArgs: [raceId],
+          );
         }
       }
     });

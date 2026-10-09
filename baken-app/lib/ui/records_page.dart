@@ -5,6 +5,7 @@ import '../data/stats.dart';
 import 'common.dart';
 import 'race_name_picker.dart';
 import 'race_page.dart';
+import 'race_results.dart';
 import 'record_form_page.dart';
 
 /// 記録タブ。月ごとの一覧とカレンダー。
@@ -34,6 +35,14 @@ class _RecordsPageState extends State<RecordsPage> {
       appBar: AppBar(
         title: const Text('記録'),
         actions: [
+          IconButton(
+            tooltip: 'レース結果',
+            icon: const Icon(Icons.emoji_events_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ResultsPage()),
+            ),
+          ),
           SegmentedButton<bool>(
             showSelectedIcon: false,
             segments: const [
@@ -430,6 +439,12 @@ Future<void> showAddRecordSheet(BuildContext context) async {
             subtitle: const Text('投資額と払戻額だけ'),
             onTap: () => Navigator.pop(ctx, 'simple'),
           ),
+          ListTile(
+            leading: const Icon(Icons.emoji_events_outlined),
+            title: const Text('レース結果だけ記録'),
+            subtitle: const Text('馬券を買っていないレースの着順・払戻金'),
+            onTap: () => Navigator.pop(ctx, 'result'),
+          ),
         ],
       ),
     ),
@@ -438,9 +453,11 @@ Future<void> showAddRecordSheet(BuildContext context) async {
   await Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => choice == 'detail'
-          ? const RecordFormPage()
-          : const SimpleRecordPage(),
+      builder: (_) => switch (choice) {
+        'detail' => const RecordFormPage(),
+        'result' => const ResultEntryPage(),
+        _ => const SimpleRecordPage(),
+      },
     ),
   );
 }

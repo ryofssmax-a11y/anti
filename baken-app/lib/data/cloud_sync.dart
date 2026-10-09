@@ -56,7 +56,7 @@ class CloudSyncService extends ChangeNotifier {
 
   Future<void> _restoreIfEmpty() async {
     try {
-      if ((await db.tickets()).isNotEmpty) return;
+      if (await db.hasRecords()) return;
       final json = await store.load();
       if (json == null || json.isEmpty) return;
       final parsed = parseBackupJson(json);

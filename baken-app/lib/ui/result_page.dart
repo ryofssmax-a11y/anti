@@ -37,6 +37,9 @@ class _ResultPageState extends State<ResultPage> {
   final Map<String, int> _pasted = {};
   String? _pasteInfo;
 
+  /// このレースに馬券の記録があるか（ないときは結果だけを残す）
+  bool _hasTickets = true;
+
   /// 記録時のオッズから仮に入れた払戻金のキー
   final Set<String> _fromOdds = {};
 
@@ -79,7 +82,9 @@ class _ResultPageState extends State<ResultPage> {
     final saved = await db.payoutsFor(widget.race.id!);
     // 記録時にオッズを入れていれば、払戻金の目安にする
     final odds = <String, int>{};
-    for (final t in await db.ticketsForRace(widget.race.id!)) {
+    final tickets = await db.ticketsForRace(widget.race.id!);
+    _hasTickets = tickets.isNotEmpty;
+    for (final t in tickets) {
       final type = t.type;
       if (type == null) continue;
       for (final l in t.lines) {
@@ -218,7 +223,7 @@ class _ResultPageState extends State<ResultPage> {
     await AppScope.of(context).db
         .settleRace(widget.race.id!, _outcome, payouts);
     if (!mounted) return;
-    toast(context, '結果を保存し、買い目を判定しました');
+    toast(context, _hasTickets ? '結果を保存し、買い目を判定しました' : 'レース結果を保存しました');
     Navigator.pop(context);
   }
 
@@ -313,9 +318,15 @@ class _ResultPageState extends State<ResultPage> {
             Text('払戻金（100円あたり）', style: t.titleSmall),
             const SizedBox(height: 4),
             if (hits.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text('このレースの買い目に的中はありません。'),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _hasTickets
+                      ? 'このレースの買い目に的中はありません。'
+                      : '馬券の記録がないレースです。着順'
+                            '${_pasted.isEmpty ? '' : 'と読み取った払戻金（${_pasted.length}件）'}'
+                            'を、レース結果として残します。',
+                ),
               ),
             for (final h in hits)
               Padding(

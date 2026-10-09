@@ -8,6 +8,7 @@ import '../data/database.dart';
 import '../data/models.dart';
 import 'common.dart';
 import 'race_name_picker.dart';
+import 'race_results.dart';
 import 'record_form_page.dart';
 import 'result_page.dart';
 
@@ -22,12 +23,17 @@ class RacePage extends StatefulWidget {
 }
 
 class _RacePageState extends State<RacePage> {
-  Future<({Race? race, List<Ticket> tickets})> _load(AppDatabase db) async {
+  Future<({Race? race, List<Ticket> tickets, Map<String, int> payouts})> _load(
+    AppDatabase db,
+  ) async {
     final race = await db.race(widget.raceId);
     final tickets = race == null
         ? <Ticket>[]
         : await db.ticketsForRace(widget.raceId);
-    return (race: race, tickets: tickets);
+    final payouts = race == null || !race.settled
+        ? <String, int>{}
+        : await db.payoutsFor(widget.raceId);
+    return (race: race, tickets: tickets, payouts: payouts);
   }
 
   Future<void> _manualSettle(Ticket t) async {
@@ -85,11 +91,17 @@ class _RacePageState extends State<RacePage> {
   Widget build(BuildContext context) {
     return DbQuery(
       load: _load,
-      builder: (context, data) => _build(context, data.race, data.tickets),
+      builder: (context, data) =>
+          _build(context, data.race, data.tickets, data.payouts),
     );
   }
 
-  Widget _build(BuildContext context, Race? race, List<Ticket> tickets) {
+  Widget _build(
+    BuildContext context,
+    Race? race,
+    List<Ticket> tickets,
+    Map<String, int> payouts,
+  ) {
     if (race == null) {
       return Scaffold(
         appBar: AppBar(),
@@ -100,7 +112,6 @@ class _RacePageState extends State<RacePage> {
     final stake = tickets.fold<int>(0, (s, x) => s + x.stakeTotal);
     final payout = tickets.fold<int>(0, (s, x) => s + x.payoutTotal);
     final allSettled = tickets.every((x) => x.settled);
-    final placings = race.outcome?.placings;
 
     return Scaffold(
       appBar: AppBar(
@@ -139,31 +150,26 @@ class _RacePageState extends State<RacePage> {
                     ].join('  '),
                     style: t.bodyMedium,
                   ),
-                  if (placings != null && race.settled) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      '結果  ${(placings.keys.toList()..sort()).map((r) => '$r着 ${placings[r]!.join('・')}').join('  ')}',
-                      style: t.bodyMedium,
+                  if (tickets.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 24,
+                      runSpacing: 8,
+                      children: [
+                        StatTile(label: '投資', value: yen(stake)),
+                        StatTile(
+                          label: '払戻',
+                          value: allSettled ? yen(payout) : '未確定',
+                        ),
+                        if (allSettled)
+                          StatTile(
+                            label: '収支',
+                            value: signedYen(payout - stake),
+                            color: profitColor(context, payout - stake),
+                          ),
+                      ],
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 24,
-                    runSpacing: 8,
-                    children: [
-                      StatTile(label: '投資', value: yen(stake)),
-                      StatTile(
-                        label: '払戻',
-                        value: allSettled ? yen(payout) : '未確定',
-                      ),
-                      if (allSettled)
-                        StatTile(
-                          label: '収支',
-                          value: signedYen(payout - stake),
-                          color: profitColor(context, payout - stake),
-                        ),
-                    ],
-                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -196,6 +202,7 @@ class _RacePageState extends State<RacePage> {
               ),
             ),
           ),
+          if (race.settled) RaceResultCard(race: race, payouts: payouts),
           for (final ticket in tickets)
             _TicketCard(
               ticket: ticket,

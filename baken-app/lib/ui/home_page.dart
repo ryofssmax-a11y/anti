@@ -6,6 +6,7 @@ import '../data/stats.dart';
 import 'common.dart';
 import 'race_name_picker.dart';
 import 'race_page.dart';
+import 'race_results.dart';
 import 'record_form_page.dart';
 
 /// ホーム。今月の収支、すぐ使える操作、結果待ち、最近の的中。
@@ -28,6 +29,7 @@ class HomePage extends StatelessWidget {
             month: await db.tickets(from: from, to: to),
             pending: await db.pendingRaces(),
             hits: await db.recentHits(),
+            results: await db.raceResultCount(),
           ),
           builder: (context, data) => ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
@@ -41,6 +43,7 @@ class HomePage extends StatelessWidget {
                 onOpenCalculator: onOpenCalculator,
               ),
               _BudgetMeter(tickets: data.month),
+              _ResultsLink(count: data.results),
               if (data.pending.isNotEmpty) ...[
                 const _SectionTitle(icon: Icons.sports_score, text: '結果待ちのレース'),
                 for (final r in data.pending) _PendingCard(race: r),
@@ -69,10 +72,44 @@ class HomePage extends StatelessWidget {
 }
 
 class _HomeData {
-  _HomeData({required this.month, required this.pending, required this.hits});
+  _HomeData({
+    required this.month,
+    required this.pending,
+    required this.hits,
+    required this.results,
+  });
   final List<Ticket> month;
   final List<Race> pending;
   final List<Ticket> hits;
+
+  /// ためたレース結果の数
+  final int results;
+}
+
+/// ためたレース結果への入り口
+class _ResultsLink extends StatelessWidget {
+  const _ResultsLink({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card.outlined(
+      margin: const EdgeInsets.only(top: 12),
+      child: ListTile(
+        leading: Icon(Icons.emoji_events_outlined, color: scheme.primary),
+        title: const Text('レース結果'),
+        subtitle: Text(
+          count == 0 ? '着順と払戻金をためて、あとから振り返れます' : '$count レースの結果をためています',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ResultsPage()),
+        ),
+      ),
+    );
+  }
 }
 
 class _Greeting extends StatelessWidget {
