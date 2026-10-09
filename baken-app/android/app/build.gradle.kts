@@ -29,11 +29,28 @@ android {
         versionName = flutter.versionName
     }
 
+    // 署名鍵は環境変数で渡す（GitHub Actions が毎回同じ鍵を渡す）。
+    // 鍵が変わると、入っているアプリを上書き更新できなくなる。
+    val keystorePath = System.getenv("BAKEN_KEYSTORE")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("BAKEN_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("BAKEN_KEY_ALIAS")
+                keyPassword = System.getenv("BAKEN_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // 鍵がないとき（手元での試し実行）はデバッグ鍵で署名する
+            signingConfig = if (keystorePath != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
