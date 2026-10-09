@@ -35,6 +35,7 @@ class BakenApp extends StatelessWidget {
       settings: settings,
       child: MaterialApp(
         title: '馬券収支電卓',
+        debugShowCheckedModeBanner: false,
         theme: theme(Brightness.light),
         darkTheme: theme(Brightness.dark),
         locale: const Locale('ja', 'JP'),

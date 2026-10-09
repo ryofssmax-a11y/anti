@@ -4,10 +4,12 @@ import '../core/bet_type.dart';
 import '../core/expander.dart';
 import '../core/selection.dart';
 import '../data/models.dart';
+import '../data/race_names.dart';
 import 'budget.dart';
 import 'calc/calc_output.dart';
 import 'calc/calculator_page.dart';
 import 'common.dart';
+import 'record_inputs.dart';
 
 /// 詳細記録。レースと買い目を入れて保存する。
 class RecordFormPage extends StatefulWidget {
@@ -27,13 +29,11 @@ class _RecordFormPageState extends State<RecordFormPage> {
   late DateTime _date = widget.race == null
       ? today()
       : DateTime.parse(widget.race!.date);
-  late String _venue = widget.race?.venue ?? jraVenues[5];
+  String _venue = jraVenues[4];
   late int _raceNo = widget.race?.raceNo ?? 11;
-  late final _name = TextEditingController(text: widget.race?.name ?? '');
+  late String? _name = widget.race?.name;
   late String? _surface = widget.race?.surface;
-  late final _distance = TextEditingController(
-    text: widget.race?.distance?.toString() ?? '',
-  );
+  late int? _distance = widget.race?.distance;
   late int _fieldSize =
       widget.prefill?.selection.fieldSize ?? widget.race?.fieldSize ?? 18;
   Channel _channel = Channel.online;
@@ -41,14 +41,42 @@ class _RecordFormPageState extends State<RecordFormPage> {
   final _memo = TextEditingController();
   late CalcOutput? _bets = widget.prefill;
   bool _saving = false;
+  bool _autoFilled = false;
+  bool _initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    if (widget.race != null) {
+      _venue = widget.race!.venue;
+    } else {
+      final s = AppScope.of(context).settings;
+      _venue = s.lastVenue ?? _venue;
+      _channel = Channel.fromName(s.lastChannel);
+    }
+  }
 
   @override
   void dispose() {
-    _name.dispose();
-    _distance.dispose();
     _tags.dispose();
     _memo.dispose();
     super.dispose();
+  }
+
+  void _onRaceName(String? name) {
+    final p = presetByName(name);
+    setState(() {
+      _name = name;
+      _autoFilled = false;
+      if (p == null) return;
+      if (p.venue != null) _venue = p.venue!;
+      if (p.surface != null) _surface = p.surface;
+      if (p.distance != null) _distance = p.distance;
+      if (p.grade.isGraded && p.grade.index <= RaceGrade.g3.index) _raceNo = 11;
+      _autoFilled = p.venue != null || p.surface != null;
+    });
   }
 
   Future<void> _pickBets() async {
@@ -77,16 +105,16 @@ class _RecordFormPageState extends State<RecordFormPage> {
       return;
     }
     setState(() => _saving = true);
-    final db = AppScope.of(context).db;
+    final scope = AppScope.of(context);
     final date = isoDate(_date);
     final sel = bets.selection;
     final race = Race(
       date: date,
       venue: _venue,
       raceNo: _raceNo,
-      name: _name.text.trim().isEmpty ? null : _name.text.trim(),
+      name: _name,
       surface: _surface,
-      distance: int.tryParse(_distance.text),
+      distance: _distance,
       fieldSize: sel.type == BetType.win5 ? _fieldSize : sel.fieldSize,
     );
     final ticket = Ticket(
@@ -103,7 +131,11 @@ class _RecordFormPageState extends State<RecordFormPage> {
       memo: _memo.text.trim(),
       lines: bets.lines,
     );
-    await db.insertTicket(ticket, race: race);
+    await scope.db.insertTicket(ticket, race: race);
+    await scope.settings.rememberRecordInput(
+      venue: _venue,
+      channel: _channel.name,
+    );
     if (!mounted) return;
     await checkBudget(context, date);
     if (!mounted) return;
@@ -111,136 +143,100 @@ class _RecordFormPageState extends State<RecordFormPage> {
     Navigator.pop(context, true);
   }
 
+  Future<void> _editDistance() async {
+    final controller = TextEditingController(text: _distance?.toString() ?? '');
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('距離'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(suffixText: 'm'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (v != null) setState(() => _distance = int.tryParse(v));
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
     final bets = _bets;
-    final fixedRace = widget.race != null;
+    final fixed = widget.race != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('馬券を記録')),
+      appBar: AppBar(title: Text(fixed ? '馬券を追加' : '馬券を記録')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          Text('レース', style: t.titleSmall),
-          const SizedBox(height: 8),
-          Row(
+          RaceNameField(name: _name, onPicked: _onRaceName, enabled: !fixed),
+          if (_autoFilled)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                '競馬場・コース・距離を入れました。年によって違う場合は下で変えてください。',
+                style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+          const FieldLabel('日付'),
+          DateChooser(
+            date: _date,
+            onChanged: (d) => setState(() => _date = d),
+            enabled: !fixed,
+          ),
+          const FieldLabel('競馬場'),
+          VenueChooser(
+            venue: _venue,
+            onChanged: (v) => setState(() => _venue = v),
+            enabled: !fixed,
+          ),
+          const FieldLabel('レース番号'),
+          RaceNoChooser(
+            raceNo: _raceNo,
+            onChanged: (n) => setState(() => _raceNo = n),
+            enabled: !fixed,
+          ),
+          const FieldLabel('コース'),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.event),
-                  label: Text(jpDate(isoDate(_date))),
-                  onPressed: fixedRace
-                      ? null
-                      : () async {
-                          final d = await showDatePicker(
-                            context: context,
-                            initialDate: _date,
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime(2100),
-                          );
-                          if (d != null) setState(() => _date = d);
-                        },
+              for (final s in surfaces)
+                ChoiceChip(
+                  label: Text(s),
+                  selected: _surface == s,
+                  onSelected: (on) => setState(() => _surface = on ? s : null),
                 ),
+              ActionChip(
+                avatar: const Icon(Icons.straighten, size: 18),
+                label: Text(_distance == null ? '距離' : '${_distance}m'),
+                onPressed: _editDistance,
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: DropdownButtonFormField<String>(
-                  initialValue: _venue,
-                  decoration: const InputDecoration(
-                    labelText: '競馬場',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: [
-                    for (final v in allVenues)
-                      DropdownMenuItem(value: v, child: Text(v)),
-                  ],
-                  onChanged: fixedRace
-                      ? null
-                      : (v) => setState(() => _venue = v ?? _venue),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: DropdownButtonFormField<int>(
-                  initialValue: _raceNo,
-                  decoration: const InputDecoration(
-                    labelText: 'レース',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: [
-                    for (var n = 1; n <= 12; n++)
-                      DropdownMenuItem(value: n, child: Text('${n}R')),
-                  ],
-                  onChanged: fixedRace
-                      ? null
-                      : (v) => setState(() => _raceNo = v ?? _raceNo),
-                ),
-              ),
-            ],
-          ),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: const Text('レースの詳細（任意）'),
-            children: [
-              TextField(
-                controller: _name,
-                decoration: const InputDecoration(
-                  labelText: 'レース名',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String?>(
-                      initialValue: _surface,
-                      decoration: const InputDecoration(
-                        labelText: '芝・ダート',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        const DropdownMenuItem(value: null, child: Text('未選択')),
-                        for (final s in surfaces)
-                          DropdownMenuItem(value: s, child: Text(s)),
-                      ],
-                      onChanged: (v) => setState(() => _surface = v),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _distance,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: '距離',
-                        suffixText: 'm',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('買い目', style: t.titleSmall),
-          const SizedBox(height: 8),
+          const FieldLabel('買い目'),
           if (bets == null)
-            OutlinedButton.icon(
+            FilledButton.tonalIcon(
               onPressed: _pickBets,
               icon: const Icon(Icons.calculate),
               label: const Text('買い目を入力'),
             )
           else
             Card(
+              margin: EdgeInsets.zero,
               child: ListTile(
                 title: Text(
                   '${bets.selection.type.label}${bets.selection.type.isSingle ? '' : ' ${bets.selection.method.label}'}'
@@ -257,9 +253,7 @@ class _RecordFormPageState extends State<RecordFormPage> {
                 ),
               ),
             ),
-          const SizedBox(height: 16),
-          Text('購入方法', style: t.titleSmall),
-          const SizedBox(height: 8),
+          const FieldLabel('購入方法'),
           SegmentedButton<Channel>(
             showSelectedIcon: false,
             segments: [
@@ -269,23 +263,30 @@ class _RecordFormPageState extends State<RecordFormPage> {
             selected: {_channel},
             onSelectionChanged: (s) => setState(() => _channel = s.first),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _tags,
-            decoration: const InputDecoration(
-              labelText: 'タグ（カンマ区切り）',
-              hintText: '例: 本命勝負, G1',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _memo,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'メモ',
-              border: OutlineInputBorder(),
-            ),
+          const SizedBox(height: 8),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('タグ・メモ（任意）'),
+            children: [
+              TextField(
+                controller: _tags,
+                decoration: const InputDecoration(
+                  labelText: 'タグ（カンマ区切り）',
+                  hintText: '例: 本命勝負, 穴狙い',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _memo,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'メモ',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
         ],
       ),
@@ -312,12 +313,24 @@ class SimpleRecordPage extends StatefulWidget {
 
 class _SimpleRecordPageState extends State<SimpleRecordPage> {
   DateTime _date = today();
-  String _venue = jraVenues[5];
+  String _venue = jraVenues[4];
+  String? _name;
   final _stake = TextEditingController();
   final _payout = TextEditingController(text: '0');
   final _memo = TextEditingController();
   final _tags = TextEditingController();
   Channel _channel = Channel.online;
+  bool _initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    final s = AppScope.of(context).settings;
+    _venue = s.lastVenue ?? _venue;
+    _channel = Channel.fromName(s.lastChannel);
+  }
 
   @override
   void dispose() {
@@ -335,11 +348,13 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
       toast(context, '投資額を入力してください');
       return;
     }
+    final scope = AppScope.of(context);
     final date = isoDate(_date);
-    await AppScope.of(context).db.insertTicket(
+    await scope.db.insertTicket(
       Ticket(
         date: date,
         venue: _venue,
+        raceName: _name,
         channel: _channel,
         stakeTotal: stake,
         payoutTotal: payout,
@@ -348,6 +363,10 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
         memo: _memo.text.trim(),
         tags: _tags.text.trim(),
       ),
+    );
+    await scope.settings.rememberRecordInput(
+      venue: _venue,
+      channel: _channel.name,
     );
     if (!mounted) return;
     await checkBudget(context, date);
@@ -361,57 +380,54 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('簡易記録')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          const Text('買い目が分からない過去分や、まとめて入れたいときに使います。'),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.event),
-            label: Text(jpDate(isoDate(_date))),
-            onPressed: () async {
-              final d = await showDatePicker(
-                context: context,
-                initialDate: _date,
-                firstDate: DateTime(2000),
-                lastDate: DateTime(2100),
-              );
-              if (d != null) setState(() => _date = d);
-            },
-          ),
+          const Text('買い目が分からない過去分や、1日分をまとめて入れたいときに使います。'),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _venue,
-            decoration: const InputDecoration(
-              labelText: '競馬場',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              for (final v in allVenues)
-                DropdownMenuItem(value: v, child: Text(v)),
+          RaceNameField(
+            name: _name,
+            onPicked: (n) => setState(() {
+              _name = n;
+              final v = presetByName(n)?.venue;
+              if (v != null) _venue = v;
+            }),
+          ),
+          const FieldLabel('日付'),
+          DateChooser(date: _date, onChanged: (d) => setState(() => _date = d)),
+          const FieldLabel('競馬場'),
+          VenueChooser(
+            venue: _venue,
+            onChanged: (v) => setState(() => _venue = v),
+          ),
+          const FieldLabel('金額'),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _stake,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '投資額',
+                    suffixText: '円',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _payout,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '払戻額',
+                    suffixText: '円',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
             ],
-            onChanged: (v) => setState(() => _venue = v ?? _venue),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _stake,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: '投資額',
-              suffixText: '円',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _payout,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: '払戻額',
-              suffixText: '円',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
+          const FieldLabel('購入方法'),
           SegmentedButton<Channel>(
             showSelectedIcon: false,
             segments: [
@@ -421,22 +437,29 @@ class _SimpleRecordPageState extends State<SimpleRecordPage> {
             selected: {_channel},
             onSelectionChanged: (s) => setState(() => _channel = s.first),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _tags,
-            decoration: const InputDecoration(
-              labelText: 'タグ（カンマ区切り）',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _memo,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'メモ',
-              border: OutlineInputBorder(),
-            ),
+          const SizedBox(height: 8),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('タグ・メモ（任意）'),
+            children: [
+              TextField(
+                controller: _tags,
+                decoration: const InputDecoration(
+                  labelText: 'タグ（カンマ区切り）',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _memo,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'メモ',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
         ],
       ),

@@ -265,6 +265,30 @@ class AppDatabase extends ChangeNotifier {
     return v ?? 0;
   }
 
+  /// 最近記録したレース名（新しい順、重複なし）
+  Future<List<String>> recentRaceNames({int limit = 20}) async {
+    final rows = await _db.rawQuery(
+      '''SELECT race_name, MAX(created_at) AS last FROM tickets
+         WHERE race_name IS NOT NULL AND race_name != ''
+         GROUP BY race_name ORDER BY last DESC LIMIT ?''',
+      [limit],
+    );
+    return [for (final r in rows) r['race_name'] as String];
+  }
+
+  /// 最近の的中（払戻のある確定済みの馬券、新しい順）
+  Future<List<Ticket>> recentHits({int limit = 3}) async {
+    final rows = await _db.query(
+      'tickets',
+      where: 'settled = 1 AND payout_total > 0',
+      orderBy: 'date DESC, created_at DESC',
+      limit: limit,
+    );
+    return [
+      for (final r in rows) Ticket.fromRow(r, await linesFor(r['id'] as int)),
+    ];
+  }
+
   // ---- 結果入力と確定 ----
 
   /// 結果から、まだ払戻金が必要な的中買い目（券種と組み合わせ）を求める。

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/models.dart';
 import '../data/stats.dart';
 import 'common.dart';
+import 'race_name_picker.dart';
 import 'race_page.dart';
 import 'record_form_page.dart';
 
@@ -218,11 +219,25 @@ class _RaceRow extends StatelessWidget {
     final stake = tickets.fold<int>(0, (s, x) => s + x.stakeTotal);
     final settled = tickets.every((x) => x.settled);
     final profit = tickets.fold<int>(0, (s, x) => s + x.profit);
+    final name = tickets.map((x) => x.raceName).whereType<String>().firstOrNull;
+    final badge = GradeBadge.forName(name, small: true);
+    final types = tickets.map((x) => x.typeLabel).toSet().join('・');
     return ListTile(
-      title: Text(
-        '${first.venue} ${first.raceNo}R${first.raceName == null ? '' : ' ${first.raceName}'}',
+      title: Row(
+        children: [
+          if (badge != null) ...[badge, const SizedBox(width: 6)],
+          Flexible(
+            child: Text(
+              name ?? '${first.venue} ${first.raceNo}R',
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
       ),
-      subtitle: Text(tickets.map((x) => x.typeLabel).toSet().join('・')),
+      subtitle: Text(
+        name == null ? types : '${first.venue} ${first.raceNo}R  $types',
+      ),
       trailing: settled
           ? Text(
               signedYen(profit),
@@ -251,7 +266,21 @@ class _SimpleRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text('${ticket.venue}  簡易記録'),
+      title: Row(
+        children: [
+          if (GradeBadge.forName(ticket.raceName, small: true)
+              case final b?) ...[
+            b,
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              '${ticket.raceName ?? ticket.venue}  簡易記録',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
       subtitle: Text(
         '${yen(ticket.stakeTotal)} → ${yen(ticket.payoutTotal)}${ticket.memo.isEmpty ? '' : '  ${ticket.memo}'}',
       ),

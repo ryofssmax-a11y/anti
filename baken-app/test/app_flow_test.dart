@@ -58,7 +58,7 @@ void main() {
     // 年齢確認
     expect(find.textContaining('20歳以上ですか'), findsOneWidget);
     await tapText(tester, 'はい、20歳以上です');
-    expect(find.text('結果待ちのレースはありません。'), findsOneWidget);
+    expect(find.text('最初の1枚を記録してみましょう'), findsOneWidget);
 
     // 計算タブ: 馬連ボックス 1,3,7 → 3点
     await tester.tap(find.text('計算').last);
@@ -91,14 +91,23 @@ void main() {
 
     await tapText(tester, 'この買い目を記録（300円）');
     expect(find.text('馬券を記録'), findsOneWidget);
+
+    // レース名を一覧から選ぶと、競馬場・コース・距離が入る
+    await tapText(tester, 'タップして選ぶ（重賞・特別・条件戦）');
+    expect(find.text('G1'), findsWidgets);
+    await tester.enterText(find.byType(TextField).first, 'じゃぱん');
+    await settle(tester);
+    await tapText(tester, 'ジャパンカップ');
+    expect(find.text('ジャパンカップ'), findsOneWidget);
+    expect(find.text('標準: 東京 芝2400m'), findsOneWidget);
     await tapText(tester, '保存（300円）');
     await settle(tester);
 
     // ホームに結果待ちが出る
     await tester.tap(find.text('ホーム').last);
     await settle(tester);
-    expect(find.text('結果待ちのレース（1）'), findsOneWidget);
-    await tapText(tester, '結果を入力');
+    expect(find.text('結果待ちのレース'), findsOneWidget);
+    await tapText(tester, '結果を入れる');
 
     // レース詳細 → 結果入力: 1着3 2着1 3着5
     await tapText(tester, '結果を入力');
@@ -127,6 +136,12 @@ void main() {
     await settle(tester);
     expect(find.text('416.7%'), findsWidgets);
 
+    // ホームに最近の的中が出る
+    await tester.tap(find.text('ホーム').last);
+    await settle(tester);
+    expect(find.text('最近の的中'), findsOneWidget);
+    expect(find.text('1,250円'), findsWidgets);
+
     // 設定タブ
     await tester.tap(find.text('設定').last);
     await settle(tester);
@@ -135,7 +150,8 @@ void main() {
     // 記録タブ: 一覧とカレンダー
     await tester.tap(find.text('記録').last);
     await settle(tester);
-    expect(find.text('中山 11R'), findsOneWidget);
+    expect(find.text('ジャパンカップ'), findsOneWidget);
+    expect(find.text('東京 11R  馬連 ボックス'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.calendar_month));
     await settle(tester);
     expect(find.text('+0.9k'), findsOneWidget);

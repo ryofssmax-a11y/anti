@@ -7,6 +7,7 @@ import '../core/selection.dart';
 import '../data/database.dart';
 import '../data/models.dart';
 import 'common.dart';
+import 'race_name_picker.dart';
 import 'record_form_page.dart';
 import 'result_page.dart';
 
@@ -102,7 +103,22 @@ class _RacePageState extends State<RacePage> {
     final placings = race.outcome?.placings;
 
     return Scaffold(
-      appBar: AppBar(title: Text(race.title)),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            if (GradeBadge.forName(race.name) case final b?) ...[
+              b,
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Text(
+                race.name ?? race.title,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -116,6 +132,7 @@ class _RacePageState extends State<RacePage> {
                   Text(
                     [
                       jpDate(race.date),
+                      '${race.venue} ${race.raceNo}R',
                       if (race.surface != null) race.surface!,
                       if (race.distance != null) '${race.distance}m',
                       '${race.fieldSize}頭',

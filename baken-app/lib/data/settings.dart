@@ -63,6 +63,18 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 前回の記録で選んだ競馬場・購入方法（次の入力の初期値にする）
+  String? get lastVenue => _prefs.getString('lastVenue');
+  String? get lastChannel => _prefs.getString('lastChannel');
+
+  Future<void> rememberRecordInput({
+    required String venue,
+    required String channel,
+  }) async {
+    await _prefs.setString('lastVenue', venue);
+    await _prefs.setString('lastChannel', channel);
+  }
+
   /// 1点あたりの金額の初期値
   int get defaultUnit => _prefs.getInt('defaultUnit') ?? 100;
   Future<void> setDefaultUnit(int v) async {
