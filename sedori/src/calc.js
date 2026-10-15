@@ -43,7 +43,9 @@
     const intlShipping = num(item.intlShipping);
     const cost = purchaseTotal + intlShipping;
     const taxRefund = num(item.purchase) * 10 / 110; // 仕入れ価格に含まれる消費税（10%）
-    const profit = netJpy - cost + (s.includeTaxRefund ? taxRefund : 0);
+    // 返品・返金: 購入者への返金額（USD）と返品送料など（円）を損失として差し引く
+    const refundJpy = num(item.refundUsd) * rate + num(item.returnCost);
+    const profit = netJpy - cost - refundJpy + (s.includeTaxRefund ? taxRefund : 0);
     return {
       rate,
       salesUsd,
@@ -56,6 +58,7 @@
       intlShipping: round(intlShipping),
       cost: round(cost),
       taxRefund: round(taxRefund),
+      refundJpy: round(refundJpy),
       profit: round(profit),
       margin: salesJpy > 0 ? profit / salesJpy * 100 : 0,
       roi: cost > 0 ? profit / cost * 100 : 0,
@@ -98,15 +101,21 @@
       otherCost: it.otherCost,
       intlShipping: it.intlShippingJpy,
       feeOverrideUsd: it.feeOverrideUsd,
+      refundUsd: it.refundUsd,
+      returnCost: it.returnCostJpy,
       rate: it.rateAtSale,
     }, s);
   }
+
+  const itemCost = it => num(it.purchasePrice) + num(it.purchaseShipping) + num(it.otherCost);
+  const isActive = it => it.status === "stock" || it.status === "listed";
+  const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
   const isSold = it => it.status === "sold" || it.status === "shipped";
   const ym = d => (d || "").slice(0, 7);
 
   function emptyMonth(month) {
-    return { month, soldCount: 0, sales: 0, fees: 0, payoutFees: 0, cogs: 0, shipping: 0, grossProfit: 0,
+    return { month, soldCount: 0, sales: 0, fees: 0, payoutFees: 0, cogs: 0, shipping: 0, refunds: 0, grossProfit: 0,
       taxRefund: 0, expenses: 0, netProfit: 0, purchaseCount: 0, purchaseAmount: 0 };
   }
 
@@ -131,6 +140,7 @@
         m.payoutFees += f.payoutFeeJpy;
         m.cogs += f.purchaseTotal;
         m.shipping += f.intlShipping;
+        m.refunds += f.refundJpy;
         m.grossProfit += f.profit;
         m.taxRefund += f.taxRefund;
       }
@@ -174,6 +184,60 @@
       return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
     };
     return "﻿" + rows.map(r => r.map(cell).join(",")).join("\r\n");
+  }
+
+  // 仕入れ先別・カテゴリ別などの成績。販売率 = 売れた数 ÷ (売れた数 + 在庫中の数)
+  function breakdown(items, keyFn, s) {
+    const map = {};
+    for (const it of items) {
+      if (it.status === "cancelled") continue;
+      const k = keyFn(it) || "（未設定）";
+      const g = (map[k] = map[k] || { key: k, purchased: 0, soldCount: 0, active: 0, sales: 0, profit: 0, cost: 0, days: 0, daysCount: 0 });
+      g.purchased++;
+      if (isActive(it)) g.active++;
+      if (isSold(it)) {
+        const f = itemFigures(it, s);
+        g.soldCount++;
+        g.sales += f.salesJpy;
+        g.profit += f.profit;
+        g.cost += f.cost;
+        if (it.purchaseDate && it.soldDate) { g.days += Math.max(0, daysBetween(it.purchaseDate, it.soldDate)); g.daysCount++; }
+      }
+    }
+    return Object.values(map).map(g => ({
+      ...g,
+      avgProfit: g.soldCount ? g.profit / g.soldCount : 0,
+      margin: g.sales ? g.profit / g.sales * 100 : 0,
+      roi: g.cost ? g.profit / g.cost * 100 : 0,
+      avgDays: g.daysCount ? g.days / g.daysCount : null,
+      sellThrough: g.soldCount + g.active ? g.soldCount / (g.soldCount + g.active) * 100 : 0,
+    })).sort((a, b) => b.profit - a.profit);
+  }
+
+  // まとめ仕入れの原価を按分する。weights が全部あればその比率、なければ均等。端数は最後の商品に寄せる
+  function splitCost(total, weights) {
+    const n = weights.length;
+    if (!n) return [];
+    const w = weights.every(x => num(x) > 0) ? weights.map(num) : weights.map(() => 1);
+    const sum = w.reduce((a, b) => a + b, 0);
+    const out = w.map(x => Math.floor(num(total) * x / sum));
+    out[n - 1] += Math.round(num(total)) - out.reduce((a, b) => a + b, 0);
+    return out;
+  }
+
+  // 確定申告用: 売上原価 = 期首棚卸高 + 当期仕入高 − 期末棚卸高（キャンセル分は除く）
+  function yearCogs(items, year) {
+    const start = `${year}-01-01`, end = `${year}-12-31`;
+    const soldBy = (it, d) => isSold(it) && it.soldDate && it.soldDate <= d;
+    let opening = 0, purchases = 0, closing = 0, closingCount = 0;
+    for (const it of items) {
+      if (it.status === "cancelled" || !it.purchaseDate) continue;
+      const c = itemCost(it);
+      if (it.purchaseDate < start && !soldBy(it, `${year - 1}-12-31`)) opening += c;
+      if (it.purchaseDate >= start && it.purchaseDate <= end) purchases += c;
+      if (it.purchaseDate <= end && !soldBy(it, end)) { closing += c; closingCount++; }
+    }
+    return { year, opening, purchases, closing, closingCount, cogs: opening + purchases - closing };
   }
 
   // ---- 共有・コピーした文章から商品名・価格・URL・仕入れ先を読み取る ----
@@ -236,7 +300,7 @@
   }
 
   const api = { DEFAULT_SETTINGS, calcProfit, maxPurchase, judge, median, itemFigures, isSold,
-    monthlySummary, dailySummary, inventoryValue, toCsv, parseListingText };
+    monthlySummary, dailySummary, inventoryValue, toCsv, parseListingText, breakdown, splitCost, yearCogs };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Calc = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

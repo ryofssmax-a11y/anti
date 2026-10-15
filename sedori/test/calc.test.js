@@ -111,3 +111,52 @@ test("parseListingText: 送料込みの判定と空文字", () => {
   assert.strictEqual(C.parseListingText("Seiko 5 送料込み 4,200円").title, "Seiko 5");
   assert.strictEqual(C.parseListingText("").found, false);
 });
+
+test("返金・返品費用は利益から差し引く", () => {
+  const base = C.itemFigures({ soldPriceUsd: 100, purchasePrice: 5000, rateAtSale: 150 }, s);
+  const ret = C.itemFigures({ soldPriceUsd: 100, purchasePrice: 5000, rateAtSale: 150, refundUsd: 20, returnCostJpy: 1500 }, s);
+  assert.strictEqual(ret.refundJpy, 20 * 150 + 1500);
+  assert.strictEqual(base.profit - ret.profit, 4500);
+  const m = C.monthlySummary([{ status: "shipped", soldDate: "2026-10-01", soldPriceUsd: 100, rateAtSale: 150, refundUsd: 20 }], [], s);
+  assert.strictEqual(m[0].refunds, 3000);
+});
+
+test("splitCost: 比率で按分し、合計が一致する", () => {
+  assert.deepStrictEqual(C.splitCost(10000, [100, 50, 50]), [5000, 2500, 2500]);
+  assert.deepStrictEqual(C.splitCost(1000, [0, 0, 0]), [333, 333, 334]);
+  assert.deepStrictEqual(C.splitCost(1000, [1, "", 3]), [333, 333, 334]);
+  assert.strictEqual(C.splitCost(9999, [3, 7]).reduce((a, b) => a + b, 0), 9999);
+});
+
+test("breakdown: 仕入れ先別の利益・販売率・平均販売日数", () => {
+  const items = [
+    { source: "メルカリ", status: "shipped", purchaseDate: "2026-09-01", soldDate: "2026-09-11", soldPriceUsd: 100, purchasePrice: 5000, rateAtSale: 150 },
+    { source: "メルカリ", status: "listed", purchaseDate: "2026-09-05", purchasePrice: 4000 },
+    { source: "ヤフオク", status: "sold", purchaseDate: "2026-09-01", soldDate: "2026-09-21", soldPriceUsd: 50, purchasePrice: 9000, rateAtSale: 150 },
+    { source: "ヤフオク", status: "cancelled", purchaseDate: "2026-09-01", purchasePrice: 1 },
+  ];
+  const rows = C.breakdown(items, i => i.source, s);
+  const mer = rows.find(r => r.key === "メルカリ"), yah = rows.find(r => r.key === "ヤフオク");
+  assert.strictEqual(rows[0].key, "メルカリ");
+  assert.strictEqual(mer.sellThrough, 50);
+  assert.strictEqual(mer.avgDays, 10);
+  assert.strictEqual(yah.purchased, 1);
+  assert.ok(yah.profit < 0);
+  assert.strictEqual(yah.avgDays, 20);
+});
+
+test("yearCogs: 期首棚卸 + 当期仕入 − 期末棚卸", () => {
+  const items = [
+    { status: "shipped", purchaseDate: "2025-12-10", soldDate: "2026-01-05", purchasePrice: 3000 },  // 期首在庫→今年売れた
+    { status: "shipped", purchaseDate: "2025-11-01", soldDate: "2025-12-01", purchasePrice: 9999 },  // 去年に完結
+    { status: "shipped", purchaseDate: "2026-03-01", soldDate: "2026-04-01", purchasePrice: 5000, purchaseShipping: 500 },
+    { status: "listed", purchaseDate: "2026-11-01", purchasePrice: 7000 },                           // 期末在庫
+    { status: "shipped", purchaseDate: "2026-12-20", soldDate: "2027-01-10", purchasePrice: 2000 },  // 年をまたいで売れた→期末在庫
+  ];
+  const r = C.yearCogs(items, 2026);
+  assert.strictEqual(r.opening, 3000);
+  assert.strictEqual(r.purchases, 14500);
+  assert.strictEqual(r.closing, 9000);
+  assert.strictEqual(r.closingCount, 2);
+  assert.strictEqual(r.cogs, 3000 + 14500 - 9000);
+});

@@ -111,7 +111,8 @@ function fld(name, label, value, opt = {}) {
   if (opt.type === "checkbox") return `<label${cls} style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" name="${name}" ${value ? "checked" : ""}>${label}</label>`;
   const type = opt.type || "text";
   const step = type === "number" ? `step="${opt.step || "any"}"` : "";
-  return `<label${cls}>${label}<input type="${type}" ${step} ${attrs} value="${esc(value)}"></label>`;
+  const list = opt.list ? `list="${opt.list}"` : "";
+  return `<label${cls}>${label}<input type="${type}" ${step} ${list} ${attrs} value="${esc(value)}"></label>`;
 }
 
 function formData(form) {
@@ -218,6 +219,9 @@ views.dashboard = () => {
   const old = state.items.filter(i => (i.status === "stock" || i.status === "listed") && i.purchaseDate && daysBetween(i.purchaseDate, t) >= 90);
   const goal = n(s.monthlyGoal), prog = goal > 0 ? Math.max(0, Math.min(100, mon.netProfit / goal * 100)) : 0;
   const top = state.candidates.map(c => ({ c, r: candResult(c) })).filter(x => Calc.judge(x.r, s) === "good").sort((a, b) => b.r.profit - a.r.profit).slice(0, 5);
+  const recent = state.items.filter(i => Calc.isSold(i) && i.soldDate && daysBetween(i.soldDate, t) <= 90);
+  const turn = Calc.breakdown(recent, () => "all", s)[0] || { avgDays: null };
+  const all = Calc.breakdown(state.items, () => "all", s)[0] || { sellThrough: 0 };
   const months = lastMonths(12);
   const summ = Calc.monthlySummary(state.items, state.expenses, s, months).filter(x => months.includes(x.month));
 
@@ -227,6 +231,7 @@ views.dashboard = () => {
     <div class="kpi"><div class="l">今月の売上（${mon.soldCount}件）</div><div class="v">${yen(mon.sales)}</div><div class="s">利益率 ${pct(mon.margin)}</div></div>
     <div class="kpi"><div class="l">今月の純利益（経費差引後）</div><div class="v ${sign(mon.netProfit)}">${yen(mon.netProfit)}</div><div class="s">目標 ${yen(goal)}（${pct(prog)}）</div><div class="progress"><i style="width:${prog}%"></i></div></div>
     <div class="kpi"><div class="l">在庫</div><div class="v">${inv.count}点</div><div class="s">仕入れ額 ${yen(inv.amount)}</div></div>
+    <div class="kpi"><div class="l">回転（直近90日に売れた商品）</div><div class="v">${turn.avgDays === null ? "-" : Math.round(turn.avgDays) + "日"}</div><div class="s">仕入れ→販売の平均日数・販売率 ${pct(all.sellThrough)}</div></div>
     <div class="kpi"><div class="l">未発送の注文</div><div class="v ${unshipped.length ? "neg" : ""}">${unshipped.length}件</div><div class="s">${unshipped.length ? "発送をお忘れなく" : "すべて発送済み"}</div></div>
   </div>
   <div class="card"><h2>月別の純利益（直近12か月）</h2>${barChart(summ.map(x => ({ label: x.month, short: +x.month.slice(5) + "月", value: x.netProfit, extra: `売上 ${yen(x.sales)}・${x.soldCount}件` })), "純利益")}</div>
@@ -394,11 +399,11 @@ views.inventory = () => {
   const s = S(), t = today();
   const match = i => ui.invFilter === "all" || (ui.invFilter === "active" ? (i.status === "stock" || i.status === "listed") : i.status === ui.invFilter);
   const q = ui.invSearch.toLowerCase();
-  const list = state.items.filter(match).filter(i => !q || (i.title + " " + i.sku + " " + (i.memo || "")).toLowerCase().includes(q))
+  const list = state.items.filter(match).filter(i => !q || [i.title, i.sku, i.memo, i.category, i.location, i.source].join(" ").toLowerCase().includes(q))
     .sort((a, b) => (b.soldDate || b.purchaseDate || "").localeCompare(a.soldDate || a.purchaseDate || ""));
   const count = f => state.items.filter(i => f === "all" || (f === "active" ? (i.status === "stock" || i.status === "listed") : i.status === f)).length;
   return `<h1>在庫・販売管理</h1>
-  <div class="row" style="margin-bottom:12px"><button class="b primary" data-act="item-new">＋ 仕入れを登録</button><input id="invSearch" placeholder="商品名・SKU・メモで検索" value="${esc(ui.invSearch)}" style="min-width:240px"><button class="b" data-act="export-items" style="margin-left:auto">CSV出力</button></div>
+  <div class="row" style="margin-bottom:12px"><button class="b primary" data-act="item-new">＋ 仕入れを登録</button><button class="b" data-act="bulk-new">まとめ仕入れ</button><input id="invSearch" placeholder="商品名・SKU・カテゴリ・保管場所で検索" value="${esc(ui.invSearch)}" style="min-width:240px"><button class="b" data-act="export-items" style="margin-left:auto">CSV出力</button></div>
   <div class="tabs">${INV_FILTERS.map(([k, l]) => `<button class="b sm ${ui.invFilter === k ? "on" : ""}" data-act="inv-filter" data-f="${k}">${l}（${count(k)}）</button>`).join("")}</div>
   <div class="card" style="padding:8px 10px">${list.length ? `<div class="tbl-wrap"><table class="stack">
     <tr><th>SKU</th><th>商品名</th><th>状態</th><th>仕入日</th><th class="n">仕入れ総額</th><th class="n">出品/売価</th><th>売却日</th><th class="n">利益</th><th class="n">日数</th><th></th></tr>
@@ -408,7 +413,7 @@ views.inventory = () => {
       const days = i.purchaseDate ? daysBetween(i.purchaseDate, i.soldDate || t) : "";
       return `<tr>
         <td>${esc(i.sku)}</td>
-        <td class="t" title="${esc(i.title)}">${i.ebayUrl ? `<a href="${esc(i.ebayUrl)}" target="_blank">${esc(i.title)}</a>` : esc(i.title)}</td>
+        <td class="t" title="${esc(i.title)}">${i.ebayUrl ? `<a href="${esc(i.ebayUrl)}" target="_blank">${esc(i.title)}</a>` : esc(i.title)}${i.location || i.category ? `<div class="muted" style="font-size:.75rem;font-weight:400">${esc([i.category, i.location && "📍" + i.location].filter(Boolean).join("・"))}</div>` : ""}${n(i.refundUsd) || n(i.returnCostJpy) ? ` <span class="badge bad">返品・返金</span>` : ""}</td>
         <td><select data-status="${i.id}">${Object.entries(STATUS).map(([k, l]) => `<option value="${k}" ${i.status === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
         <td>${esc(i.purchaseDate)}</td>
         <td class="n">${yen(n(i.purchasePrice) + n(i.purchaseShipping) + n(i.otherCost))}</td>
@@ -420,6 +425,12 @@ views.inventory = () => {
       </tr>`;
     }).join("")}</table></div>` : `<div class="empty">該当する商品はありません</div>`}</div>`;
 };
+
+// 既に使っているカテゴリ・保管場所を入力候補にする
+function datalists() {
+  const uniq = k => [...new Set(state.items.map(i => i[k]).filter(Boolean))].sort();
+  return ["category", "location"].map(k => `<datalist id="dl-${k}">${uniq(k).map(v => `<option value="${esc(v)}">`).join("")}</datalist>`).join("");
+}
 
 function itemDialog(item, focusSale) {
   const s = S();
@@ -440,6 +451,8 @@ function itemDialog(item, focusSale) {
       ${fld("source", "仕入れ先", it.source, { options: SOURCES })}
       ${fld("sourceUrl", "仕入れ先URL", it.sourceUrl || "")}
       ${fld("purchaseDate", "仕入日", it.purchaseDate, { type: "date" })}
+      ${fld("category", "カテゴリ", it.category || "", { list: "dl-category", placeholder: "例 カメラ" })}
+      ${fld("location", "保管場所", it.location || "", { list: "dl-location", placeholder: "例 棚A-2" })}
       ${fld("purchasePrice", "仕入れ価格（円）", it.purchasePrice ?? "", { type: "number", required: true })}
       ${fld("purchaseShipping", "国内送料・手数料（円）", it.purchaseShipping, { type: "number" })}
       ${fld("otherCost", "その他費用（修理・清掃等）", it.otherCost, { type: "number" })}
@@ -459,7 +472,11 @@ function itemDialog(item, focusSale) {
       ${fld("buyer", "購入者・注文番号", it.buyer || "")}
       ${fld("tracking", "追跡番号", it.tracking || "")}
     </div></fieldset>
-    <div class="form">${fld("memo", "メモ", it.memo || "", { type: "textarea", wide: true })}</div>
+    <fieldset><legend>返品・返金（あった場合のみ）</legend><div class="form">
+      ${fld("refundUsd", "購入者への返金額（USD）", it.refundUsd ?? "", { type: "number" })}
+      ${fld("returnCostJpy", "返品送料などの損失（円）", it.returnCostJpy ?? "", { type: "number" })}
+    </div></fieldset>
+    <div class="form">${fld("memo", "メモ", it.memo || "", { type: "textarea", wide: true })}</div>${datalists()}
     <div id="itemPreview"></div>`;
   openDialog(isNew ? "仕入れを登録" : focusSale ? "販売を記録" : "商品を編集", body, d => {
     if ((d.status === "sold" || d.status === "shipped") && (!d.soldDate || !n(d.soldPriceUsd))) {
@@ -478,9 +495,43 @@ function itemDialog(item, focusSale) {
   }, form => {
     const d = formData(form);
     const sold = n(d.soldPriceUsd) > 0;
-    const r = Calc.calcProfit({ sellUsd: sold ? d.soldPriceUsd : d.listPriceUsd, shipChargeUsd: sold ? d.shippingChargedUsd : 0, purchase: d.purchasePrice, purchaseShipping: d.purchaseShipping, otherCost: d.otherCost, intlShipping: d.intlShippingJpy === "" ? s.defaultIntlShipping : d.intlShippingJpy, feeOverrideUsd: d.feeOverrideUsd, rate: d.rateAtSale }, s);
+    const r = Calc.calcProfit({ sellUsd: sold ? d.soldPriceUsd : d.listPriceUsd, shipChargeUsd: sold ? d.shippingChargedUsd : 0, purchase: d.purchasePrice, purchaseShipping: d.purchaseShipping, otherCost: d.otherCost, intlShipping: d.intlShippingJpy === "" ? s.defaultIntlShipping : d.intlShippingJpy, feeOverrideUsd: d.feeOverrideUsd, refundUsd: d.refundUsd, returnCost: d.returnCostJpy, rate: d.rateAtSale }, s);
     $("#itemPreview").innerHTML = n(d.soldPriceUsd) || n(d.listPriceUsd) ? `<p class="note">${sold ? "販売実績の利益" : "出品価格で売れた場合の見込み"}</p>` + profitPreview(r) : "";
   }, isNew ? "登録" : "保存");
+}
+
+// まとめ仕入れ: 1回の購入で複数商品を仕入れたとき、原価を想定販売価格の比率（なければ均等）で按分して登録する
+function bulkDialog() {
+  const body = `<div class="form">
+      ${fld("source", "仕入れ先", "ヤフオク", { options: SOURCES })}
+      ${fld("purchaseDate", "仕入日", today(), { type: "date" })}
+      ${fld("total", "仕入れ総額（円）", "", { type: "number", required: true })}
+      ${fld("shipping", "送料・手数料（円）", 0, { type: "number" })}
+      ${fld("category", "カテゴリ", "", { list: "dl-category" })}
+      ${fld("location", "保管場所", "", { list: "dl-location" })}
+      ${fld("lines", "商品（1行に1つ。「商品名, 想定販売価格USD」の形で価格は省略可）", "", { type: "textarea", wide: true, required: true })}
+    </div>${datalists()}<div id="bulkPreview"></div>`;
+  const parse = d => d.lines.split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const m = l.match(/^(.*?)[,，、\t]\s*\$?([\d.]+)\s*$/);
+    return m ? { title: m[1].trim(), usd: +m[2] } : { title: l, usd: "" };
+  });
+  const plan = d => {
+    const rows = parse(d);
+    const price = Calc.splitCost(d.total, rows.map(r => r.usd));
+    const ship = Calc.splitCost(d.shipping, rows.map(r => r.usd));
+    return rows.map((r, i) => ({ ...r, price: price[i], ship: ship[i] }));
+  };
+  openDialog("まとめ仕入れを登録", body, d => {
+    const rows = plan(d);
+    if (!rows.length) { toast("商品を1行以上入力してください"); return false; }
+    rows.forEach(r => state.items.push({ id: uid(), sku: nextSku(), title: r.title, status: "stock", source: d.source, purchaseDate: d.purchaseDate,
+      purchasePrice: r.price, purchaseShipping: r.ship, otherCost: 0, listPriceUsd: r.usd, category: d.category, location: d.location,
+      memo: `まとめ仕入れ（${rows.length}点・総額${yen(n(d.total) + n(d.shipping))}）`, createdAt: today() }));
+    save(); render(); toast(`${rows.length}点を登録しました`);
+  }, form => {
+    const d = formData(form), rows = plan(d);
+    $("#bulkPreview").innerHTML = rows.length ? `<p class="note">${rows.every(r => r.usd) ? "想定販売価格の比率" : "均等"}で按分します</p><table><tr><th>商品名</th><th class="n">按分した仕入れ値</th><th class="n">送料</th></tr>${rows.map(r => `<tr><td class="t">${esc(r.title)}</td><td class="n">${yen(r.price)}</td><td class="n">${yen(r.ship)}</td></tr>`).join("")}</table>` : "";
+  }, "登録");
 }
 
 // ----- 月次レポート -----
@@ -497,7 +548,7 @@ views.monthly = () => {
   const days = Calc.dailySummary(state.items, sel, s);
   const soldItems = state.items.filter(i => Calc.isSold(i) && (i.soldDate || "").startsWith(sel)).sort((a, b) => a.soldDate.localeCompare(b.soldDate));
   const inv = Calc.inventoryValue(state.items);
-  const cols = [["sales", "売上"], ["fees", "eBay手数料"], ["payoutFees", "入金コスト"], ["cogs", "仕入原価"], ["shipping", "国際送料"], ["grossProfit", "粗利益"], ["expenses", "経費"], ["netProfit", "純利益"]];
+  const cols = [["sales", "売上"], ["fees", "eBay手数料"], ["payoutFees", "入金コスト"], ["cogs", "仕入原価"], ["shipping", "国際送料"], ["refunds", "返品・返金"], ["grossProfit", "粗利益"], ["expenses", "経費"], ["netProfit", "純利益"]];
   const cell = (m, k) => `<td class="n ${k === "grossProfit" || k === "netProfit" ? sign(m[k]) : ""}">${yen(m[k])}</td>`;
   return `<h1>月次レポート</h1>
   <div class="row" style="margin-bottom:12px">
@@ -520,8 +571,29 @@ views.monthly = () => {
   <div class="grid two">
     <div class="card"><h2>${+sel.slice(5)}月の日別売上</h2>${days.length ? `<table><tr><th>日付</th><th class="n">件数</th><th class="n">売上</th><th class="n">利益</th></tr>${days.map(d => `<tr><td>${d.date}</td><td class="n">${d.soldCount}</td><td class="n">${yen(d.sales)}</td><td class="n ${sign(d.profit)}">${yen(d.profit)}</td></tr>`).join("")}</table>` : `<div class="empty">この月の販売はありません</div>`}</div>
     <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">${+sel.slice(5)}月の販売明細</h2><button class="b sm" data-act="export-month-detail" ${soldItems.length ? "" : "disabled"}>CSV出力</button></div>${soldItems.length ? `<div class="tbl-wrap"><table><tr><th>売却日</th><th>商品名</th><th class="n">売価</th><th class="n">利益</th></tr>${soldItems.map(i => { const r = Calc.itemFigures(i, s); return `<tr><td>${i.soldDate}</td><td class="t">${esc(i.title)}</td><td class="n">${usd(r.salesUsd)}</td><td class="n ${sign(r.profit)}">${yen(r.profit)}</td></tr>`; }).join("")}</table></div>` : `<div class="empty">この月の販売はありません</div>`}</div>
-  </div>`;
+  </div>
+  ${analysisCards(y)}`;
 };
+
+// 仕入れ先別・カテゴリ別の成績と、確定申告用の売上原価
+function analysisCards(y) {
+  const s = S();
+  const inYear = state.items.filter(i => (i.soldDate || i.purchaseDate || "").startsWith(y + "-") || (i.status === "stock" || i.status === "listed"));
+  const table = (title, rows) => `<div class="card"><h2>${title}</h2>${rows.length ? `<div class="tbl-wrap"><table class="stack">
+    <tr><th>名前</th><th class="n">仕入れ</th><th class="n">販売</th><th class="n">販売率</th><th class="n">平均販売日数</th><th class="n">利益</th><th class="n">1点あたり利益</th><th class="n">利益率</th><th class="n">ROI</th></tr>
+    ${rows.map(r => `<tr><td style="white-space:nowrap;font-weight:600">${esc(r.key)}</td><td class="n">${r.purchased}点</td><td class="n">${r.soldCount}点</td><td class="n">${pct(r.sellThrough)}</td><td class="n">${r.avgDays === null ? "-" : Math.round(r.avgDays) + "日"}</td><td class="n ${sign(r.profit)}">${yen(r.profit)}</td><td class="n">${yen(r.avgProfit)}</td><td class="n">${pct(r.margin)}</td><td class="n">${pct(r.roi)}</td></tr>`).join("")}
+  </table></div>` : `<div class="empty">データがありません</div>`}</div>`;
+  const c = Calc.yearCogs(state.items, y);
+  return `${table(`仕入れ先別の成績（${y}年）`, Calc.breakdown(inYear, i => i.source, s))}
+  ${table(`カテゴリ別の成績（${y}年）`, Calc.breakdown(inYear, i => i.category, s))}
+  <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">確定申告用：${y}年の売上原価</h2><button class="b sm" data-act="export-cogs">CSV出力</button></div>
+    <table><tr><td>期首棚卸高（${y}年1月1日時点の在庫）</td><td class="n">${yen(c.opening)}</td></tr>
+    <tr><td>＋ 当期仕入高（${y}年に仕入れた額）</td><td class="n">${yen(c.purchases)}</td></tr>
+    <tr><td>− 期末棚卸高（${y}年12月31日時点の在庫 ${c.closingCount}点）</td><td class="n">${yen(c.closing)}</td></tr>
+    <tr class="total"><td>＝ 売上原価</td><td class="n">${yen(c.cogs)}</td></tr></table>
+    <p class="note">年末に売れ残った在庫の仕入れ額は、その年の経費（売上原価）になりません。申告の際は税理士や国税庁の案内もあわせて確認してください。</p>
+  </div>`;
+}
 
 // ----- 経費 -----
 views.expenses = () => {
@@ -805,6 +877,7 @@ async function doAction(act, el) {
       break;
     case "inv-filter": ui.invFilter = el.dataset.f; render(); break;
     case "item-new": itemDialog({}); break;
+    case "bulk-new": bulkDialog(); break;
     case "item-edit": itemDialog(state.items.find(i => i.id === id)); break;
     case "item-sold": itemDialog(state.items.find(i => i.id === id), true); break;
     case "item-del":
@@ -820,19 +893,24 @@ async function doAction(act, el) {
     case "exp-del": state.expenses = state.expenses.filter(e => e.id !== id); save(); render(); break;
     case "fetch-rate": updateRate(false); break;
     case "export-items": {
-      const head = ["SKU", "商品名", "状態", "仕入れ先", "仕入日", "仕入れ価格", "国内送料等", "その他費用", "出品日", "出品価格USD", "売却日", "販売価格USD", "購入者負担送料USD", "国際送料", "レート", "eBay手数料(円)", "入金コスト(円)", "利益", "利益率%", "購入者・注文", "追跡番号", "メモ"];
+      const head = ["SKU", "商品名", "状態", "カテゴリ", "保管場所", "仕入れ先", "仕入日", "仕入れ価格", "国内送料等", "その他費用", "出品日", "出品価格USD", "売却日", "販売価格USD", "購入者負担送料USD", "国際送料", "レート", "eBay手数料(円)", "入金コスト(円)", "返金USD", "返品損失(円)", "利益", "利益率%", "購入者・注文", "追跡番号", "メモ"];
       download(`sedori-items-${today()}.csv`, [head, ...state.items.map(i => {
         const r = Calc.isSold(i) ? Calc.itemFigures(i, s) : null;
-        return [i.sku, i.title, STATUS[i.status], i.source, i.purchaseDate, i.purchasePrice, i.purchaseShipping, i.otherCost, i.listDate, i.listPriceUsd, i.soldDate, i.soldPriceUsd, i.shippingChargedUsd, i.intlShippingJpy, i.rateAtSale,
-          r ? r.feesJpy : "", r ? r.payoutFeeJpy : "", r ? r.profit : "", r ? r.margin.toFixed(1) : "", i.buyer, i.tracking, i.memo];
+        return [i.sku, i.title, STATUS[i.status], i.category, i.location, i.source, i.purchaseDate, i.purchasePrice, i.purchaseShipping, i.otherCost, i.listDate, i.listPriceUsd, i.soldDate, i.soldPriceUsd, i.shippingChargedUsd, i.intlShippingJpy, i.rateAtSale,
+          r ? r.feesJpy : "", r ? r.payoutFeeJpy : "", i.refundUsd, i.returnCostJpy, r ? r.profit : "", r ? r.margin.toFixed(1) : "", i.buyer, i.tracking, i.memo];
       })]);
+      break;
+    }
+    case "export-cogs": {
+      const c = Calc.yearCogs(state.items, ui.year);
+      download(`sedori-cogs-${ui.year}.csv`, [["項目", "金額"], ["期首棚卸高", c.opening], ["当期仕入高", c.purchases], ["期末棚卸高", c.closing], ["売上原価", c.cogs]]);
       break;
     }
     case "export-monthly": {
       const y = ui.year, months = Array.from({ length: 12 }, (_, i) => `${y}-${pad(i + 1)}`);
       const rows = Calc.monthlySummary(state.items, state.expenses, s, months).filter(m => m.month.startsWith(y + "-"));
-      download(`sedori-monthly-${y}.csv`, [["月", "販売数", "売上", "eBay手数料", "入金コスト", "仕入原価", "国際送料", "粗利益", "経費", "純利益", "粗利率%", "仕入れ点数", "仕入れ額", "消費税還付見込"],
-        ...rows.map(m => [m.month, m.soldCount, m.sales, m.fees, m.payoutFees, m.cogs, m.shipping, m.grossProfit, m.expenses, m.netProfit, m.margin.toFixed(1), m.purchaseCount, m.purchaseAmount, m.taxRefund])]);
+      download(`sedori-monthly-${y}.csv`, [["月", "販売数", "売上", "eBay手数料", "入金コスト", "仕入原価", "国際送料", "返品・返金", "粗利益", "経費", "純利益", "粗利率%", "仕入れ点数", "仕入れ額", "消費税還付見込"],
+        ...rows.map(m => [m.month, m.soldCount, m.sales, m.fees, m.payoutFees, m.cogs, m.shipping, m.refunds, m.grossProfit, m.expenses, m.netProfit, m.margin.toFixed(1), m.purchaseCount, m.purchaseAmount, m.taxRefund])]);
       break;
     }
     case "export-month-detail": {
