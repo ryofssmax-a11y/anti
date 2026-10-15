@@ -77,4 +77,4 @@ npm start        # 開発用に起動
 npm test         # 利益計算のテスト
 npm run dist     # dist/ にインストーラーを作成
 ```
-Node.js 20 以上が必要です。`src/index.html` をブラウザで直接開いても動作を確認できます（データはブラウザに保存され、eBay API・為替取得は使えません）。
+Node.js 22 以上が必要です。`src/index.html` をブラウザで直接開いても動作を確認できます（データはブラウザに保存され、eBay API・為替取得は使えません）。
