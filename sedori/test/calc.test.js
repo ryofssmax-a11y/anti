@@ -76,3 +76,38 @@ test("monthlySummary / dailySummary / inventoryValue", () => {
 test("toCsv: カンマ・改行・引用符をエスケープ", () => {
   assert.strictEqual(C.toCsv([["a,b", 'x"y', 1]]), '﻿"a,b","x""y",1');
 });
+
+test("parseListingText: メルカリの共有文", () => {
+  const r = C.parseListingText("Nikon F3 HP ボディ 動作品 ¥12,800 #メルカリ https://jp.mercari.com/item/m12345678901");
+  assert.strictEqual(r.source, "メルカリ");
+  assert.strictEqual(r.price, 12800);
+  assert.strictEqual(r.url, "https://jp.mercari.com/item/m12345678901");
+  assert.strictEqual(r.title, "Nikon F3 HP ボディ 動作品");
+});
+
+test("parseListingText: 「」で囲まれた商品名と全角の金額", () => {
+  const r = C.parseListingText("メルカリで「Canon AE-1 Program 50mm付き」をチェック！ ￥８，５００\nhttps://jp.mercari.com/item/m999");
+  assert.strictEqual(r.title, "Canon AE-1 Program 50mm付き");
+  assert.strictEqual(r.price, 8500);
+});
+
+test("parseListingText: ヤフオクは即決価格を優先", () => {
+  const r = C.parseListingText("SONY WALKMAN WM-EX5 ジャンク - ヤフオク!\n現在 3,000円 即決 5,500円\nhttps://page.auctions.yahoo.co.jp/jp/auction/x123456789");
+  assert.strictEqual(r.source, "ヤフオク");
+  assert.strictEqual(r.price, 5500);
+  assert.strictEqual(r.title, "SONY WALKMAN WM-EX5 ジャンク");
+});
+
+test("parseListingText: URLだけ・価格なし", () => {
+  const r = C.parseListingText("https://item.fril.jp/abc123");
+  assert.strictEqual(r.source, "ラクマ");
+  assert.strictEqual(r.price, null);
+  assert.strictEqual(r.title, "");
+  assert.ok(r.found);
+});
+
+test("parseListingText: 送料込みの判定と空文字", () => {
+  assert.strictEqual(C.parseListingText("Seiko 5 送料込み 4,200円").freeShipping, true);
+  assert.strictEqual(C.parseListingText("Seiko 5 送料込み 4,200円").title, "Seiko 5");
+  assert.strictEqual(C.parseListingText("").found, false);
+});

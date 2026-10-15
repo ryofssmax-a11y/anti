@@ -176,8 +176,67 @@
     return "﻿" + rows.map(r => r.map(cell).join(",")).join("\r\n");
   }
 
+  // ---- 共有・コピーした文章から商品名・価格・URL・仕入れ先を読み取る ----
+  const SITE_PATTERNS = [
+    [/mercari\.com|merc\.li/i, "メルカリ"],
+    [/paypayfleamarket\.yahoo\.co\.jp/i, "Yahoo!フリマ"],
+    [/auctions\.yahoo\.co\.jp|auctions\.yahoo\.jp/i, "ヤフオク"],
+    [/fril\.jp|rakuma\.rakuten/i, "ラクマ"],
+    [/suruga-ya\.jp/i, "駿河屋"],
+    [/hardoff\.co\.jp/i, "ハードオフ"],
+    [/2ndstreet\.jp/i, "セカンドストリート"],
+    [/amazon\.co\.jp|amzn\.(asia|to)/i, "Amazon"],
+  ];
+  const SITE_WORDS = [
+    [/メルカリ|mercari/i, "メルカリ"], [/Yahoo!?フリマ|PayPayフリマ/i, "Yahoo!フリマ"],
+    [/ヤフオク|Yahoo!?オークション/i, "ヤフオク"], [/ラクマ/, "ラクマ"], [/駿河屋/, "駿河屋"],
+    [/ハードオフ|オフモール/, "ハードオフ"], [/セカンドストリート|2nd ?STREET/i, "セカンドストリート"],
+  ];
+  // 商品名から取り除く定型文（サイト名・宣伝文句など）
+  const BOILERPLATE = [
+    /(を|が)?メルカリで(出品|販売)?中?(です)?[!！。]*/g, /メルカリでチェック[!！]*/g, /をチェック[!！]*/g,
+    /#\S+/g, /\s(by|-|\||｜)\s*(メルカリ|mercari|ヤフオク!?|Yahoo!?オークション|ラクマ|Yahoo!?フリマ|PayPayフリマ|駿河屋|Amazon)[^\n]*/gi,
+    /^(メルカリ|ヤフオク!?|ラクマ|Yahoo!?フリマ)\s*[:：]\s*/gi, /中古・新品通販の?\S*/g, /フリマアプリ\S*/g,
+  ];
+  const PRICE_RE = /(?:(即決|現在|価格|販売価格|税込)\s*[:：]?\s*)?(?:[¥￥]\s*([\d,]{2,})|([\d,]{2,})\s*円)/g;
+
+  function parseListingText(text) {
+    const raw = String(text || "").normalize("NFKC");
+    const urlMatch = raw.match(/https?:\/\/[^\s"'<>（）「」【】]+/);
+    const url = urlMatch ? urlMatch[0].replace(/[)\]。、,.!]+$/, "") : "";
+    let source = "";
+    for (const [re, name] of SITE_PATTERNS) if (re.test(url)) { source = name; break; }
+    if (!source) for (const [re, name] of SITE_WORDS) if (re.test(raw)) { source = name; break; }
+
+    const body = raw.replace(/https?:\/\/\S+/g, " ");
+    // 価格: 即決価格があればそれを優先、なければ最初に出てくる金額
+    const prices = [];
+    let m;
+    PRICE_RE.lastIndex = 0;
+    while ((m = PRICE_RE.exec(body))) {
+      const v = +(m[2] || m[3]).replace(/,/g, "");
+      if (v >= 10 && v < 100000000) prices.push({ v, label: m[1] || "" });
+    }
+    const pick = prices.find(p => p.label === "即決") || prices[0];
+    const price = pick ? pick.v : null;
+
+    // 商品名: 「」や【】で囲まれていればその中身、なければ定型文と金額を除いた一番長い行
+    let title = "";
+    const quoted = body.match(/「([^」]{2,})」/) || body.match(/【([^】]{4,})】/);
+    if (quoted && !/^(送料|即決|新品|中古|未使用)/.test(quoted[1])) title = quoted[1];
+    if (!title) {
+      let t = body.replace(PRICE_RE, " ").replace(/送料(込み?|無料|別)(\(出品者負担\))?/g, " ");
+      for (const re of BOILERPLATE) t = t.replace(re, " ");
+      title = t.split(/\n/).map(l => l.replace(/[\s　]+/g, " ").replace(/^[\s\-|｜:：・、,]+|[\s\-|｜:：・、,]+$/g, "")).filter(Boolean)
+        .sort((a, b) => b.length - a.length)[0] || "";
+    }
+    title = title.replace(/\s+/g, " ").trim().slice(0, 200);
+    const freeShipping = /送料(込み?|無料)|出品者負担/.test(body);
+    return { title, price, url, source, freeShipping, found: !!(title || price || url) };
+  }
+
   const api = { DEFAULT_SETTINGS, calcProfit, maxPurchase, judge, median, itemFigures, isSold,
-    monthlySummary, dailySummary, inventoryValue, toCsv };
+    monthlySummary, dailySummary, inventoryValue, toCsv, parseListingText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Calc = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -280,6 +280,14 @@ views.research = () => {
 
   return `<h1>リサーチ・利益計算</h1>
   <div class="card">
+    <h2>貼り付けで取り込み</h2>
+    <p class="note" style="margin:0 0 10px">メルカリ・ヤフオクなどで「共有 → コピー」した文章や、商品ページのURL・商品名・価格を貼り付けると、下の利益シミュレーターに自動で入力します。</p>
+    <div class="row"><button class="b primary" data-act="paste-clip">コピーした内容を貼り付け</button></div>
+    <textarea id="pasteBox" style="width:100%;margin-top:10px" placeholder="うまく貼り付けできないときは、ここを長押し（右クリック）して貼り付け"></textarea>
+    <div class="row" style="margin-top:6px"><button class="b" data-act="paste-parse">読み取る</button><span id="pasteResult" class="muted" style="font-size:.85rem"></span></div>
+  </div>
+
+  <div class="card">
     <h2>相場リサーチ</h2>
     <div class="row">
       <input id="kw" style="flex:1;min-width:240px" placeholder="キーワード（英語推奨：例 Nikon F3 body）" value="${esc(rs ? rs.keyword : "")}">
@@ -600,6 +608,9 @@ function bindView() {
       save(); render(); toast("候補に追加しました");
     };
   }
+  const pb = $("#pasteBox");
+  // 欄に貼り付けたらすぐ読み取る
+  if (pb) pb.onpaste = () => setTimeout(() => applyPasted(pb.value), 0);
   const og = $("#onlyGood");
   if (og) og.onchange = () => { ui.onlyGood = og.checked; render(); };
   const kw = $("#kw");
@@ -680,10 +691,43 @@ function download(name, rows, filterName = "CSV") {
   api.saveFile({ name, content: Calc.toCsv(rows), filterName, ext: "csv" }).then(p => p && toast("保存しました: " + p));
 }
 
+// 貼り付けた文章を読み取り、利益シミュレーターに入力する
+function applyPasted(text) {
+  const r = Calc.parseListingText(text);
+  const out = $("#pasteResult");
+  if (!r.found) { toast("商品名・価格・URLを読み取れませんでした"); return; }
+  // 別の商品なので、前の入力は残さず読み取れた内容で置き換える
+  const f = $("#candForm");
+  f.title.value = r.title;
+  if (r.title) $("#kw").value = r.title;
+  f.source.value = r.source && SOURCES.includes(r.source) ? r.source : "その他";
+  f.sourceUrl.value = r.url;
+  f.purchasePrice.value = r.price === null ? "" : r.price;
+  f.purchaseShipping.value = 0;
+  f.ebayPriceUsd.value = "";
+  f.dispatchEvent(new Event("input"));
+  const parts = [r.source || "仕入れ先不明", r.price !== null ? yen(r.price) : "価格なし", r.title ? "商品名あり" : "商品名なし"];
+  out.textContent = "読み取り結果：" + parts.join("・");
+  // 次に入力すべき欄へ移動（価格が取れていなければ仕入れ価格、取れていれば eBay 販売予想価格）
+  const next = r.price === null ? f.purchasePrice : (r.title ? f.ebayPriceUsd : f.title);
+  f.scrollIntoView({ behavior: "smooth", block: "start" });
+  setTimeout(() => next.focus({ preventScroll: true }), 300);
+  toast(r.price === null ? "価格が見つかりませんでした。仕入れ価格を入力してください" : "読み取りました。eBay の販売予想価格を入力してください");
+}
+
 async function doAction(act, el) {
   const id = el && el.dataset.id;
   const s = S();
   switch (act) {
+    case "paste-clip": {
+      let text = "";
+      try { text = await navigator.clipboard.readText(); } catch (e) { /* 権限がない・非対応 */ }
+      if (!text) { toast("自動で貼り付けできませんでした。下の欄に貼り付けてください"); $("#pasteBox").focus(); break; }
+      $("#pasteBox").value = text;
+      applyPasted(text);
+      break;
+    }
+    case "paste-parse": applyPasted($("#pasteBox").value); break;
     case "site": {
       const k = $("#kw").value.trim();
       if (!k) return toast("キーワードを入力してください");
