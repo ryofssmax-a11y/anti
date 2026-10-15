@@ -1,20 +1,41 @@
 /* global Calc */
 "use strict";
 
-// ブラウザで直接開いた場合（開発・プレビュー用）は localStorage に保存する
+// デスクトップ版（Electron）は window.api がある。スマホ・ブラウザ版（PWA）は localStorage に保存する
+const IS_DESKTOP = !!window.api;
 const api = window.api || {
   load: async () => JSON.parse(localStorage.getItem("sedori") || "null"),
   save: async d => localStorage.setItem("sedori", JSON.stringify(d)),
-  openExternal: async url => window.open(url, "_blank"),
-  saveFile: async ({ name, content }) => {
+  openExternal: async url => window.open(url, "_blank", "noopener"),
+  saveFile: async ({ name, content, ext }) => {
+    const type = ext === "json" ? "application/json" : "text/csv";
+    const file = new File([content], name, { type });
+    // スマホでは共有シート（ファイルに保存・Google ドライブ・メール等）を使う
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && matchMedia("(pointer: coarse)").matches) {
+      try { await navigator.share({ files: [file], title: name }); return name; } catch (e) { if (e.name === "AbortError") return null; }
+    }
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([content]));
+    a.href = URL.createObjectURL(file);
     a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     return name;
   },
-  openJson: async () => null,
-  fetchRate: async () => { throw new Error("デスクトップアプリでのみ利用できます"); },
-  ebaySearch: async () => { throw new Error("デスクトップアプリでのみ利用できます"); },
+  openJson: () => new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "application/json,.json";
+    input.onchange = async () => {
+      try { resolve(input.files[0] ? JSON.parse(await input.files[0].text()) : null); } catch { reject(new Error("ファイルを読み込めませんでした")); }
+    };
+    input.click();
+  }),
+  fetchRate: async () => {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD");
+    if (!res.ok) throw new Error("為替レートの取得に失敗しました (" + res.status + ")");
+    const j = await res.json();
+    if (!j.rates || !j.rates.JPY) throw new Error("為替レートの形式が想定外です");
+    return { rate: j.rates.JPY, updated: j.time_last_update_utc };
+  },
+  ebaySearch: async () => { throw new Error("eBay 相場の自動取得はPC版のみです。「eBay 売却済み」ボタンで相場を確認してください"); },
 };
 
 const SOURCES = ["ヤフオク", "メルカリ", "ラクマ", "Yahoo!フリマ", "駿河屋", "ハードオフ", "セカンドストリート", "Amazon", "店舗", "その他"];
@@ -121,7 +142,11 @@ function profitPreview(r, extra = "") {
 let dlgHandler = null;
 function openDialog(title, body, onSave, onInput, saveLabel = "保存") {
   const form = $("#dlgForm");
-  form.innerHTML = `<h3>${title}</h3>${body}<div class="foot"><button class="b" value="cancel" formnovalidate>キャンセル</button><button class="b primary" value="save">${saveLabel}</button></div>`;
+  const buttons = onSave
+    ? `<button class="b" value="cancel" formnovalidate>キャンセル</button><button class="b primary" value="save">${saveLabel}</button>`
+    : `<button class="b primary" value="cancel" formnovalidate>${saveLabel}</button>`;
+  // 見出しにフォーカスして、スマホでキーボードがいきなり開かないようにする
+  form.innerHTML = `<h3 tabindex="-1" autofocus>${title}</h3>${body}<div class="foot">${buttons}</div>`;
   dlgHandler = onSave;
   form.oninput = onInput ? () => onInput(form) : null;
   if (onInput) onInput(form);
@@ -138,7 +163,8 @@ $("#dlgForm").addEventListener("submit", e => {
 
 // ---------- グラフ（単一系列の棒グラフ。負の値は基準線の下へ） ----------
 function barChart(points, valueLabel) {
-  const W = 760, H = 230, L = 64, R = 12, T = 12, B = 28;
+  // 画面幅に合わせて描くと、スマホでも文字が小さくなりすぎない
+  const W = Math.max(340, Math.min(760, ($("#view").clientWidth || 760) - 40)), H = W < 500 ? 200 : 230, L = 52, R = 8, T = 12, B = 28;
   const vals = points.map(p => p.value);
   let max = Math.max(0, ...vals), min = Math.min(0, ...vals);
   if (max === min) max = 1;
@@ -162,7 +188,7 @@ function barChart(points, valueLabel) {
     svg += `<g data-tip="${esc(p.label + "　" + valueLabel + " " + yen(p.value) + (p.extra ? "　" + p.extra : ""))}">
       <rect class="hit" x="${cx - slot / 2}" y="${T}" width="${slot}" height="${H - T - B}"/>
       ${h ? `<path class="bar ${p.value < 0 ? "neg" : ""}" d="${d}"/>` : ""}
-      <text class="ax" x="${cx}" y="${H - 8}" text-anchor="middle">${esc(p.short || p.label)}</text></g>`;
+      ${W >= 500 || i % 2 === points.length % 2 ? `<text class="ax" x="${cx}" y="${H - 8}" text-anchor="middle">${esc(p.short || p.label)}</text>` : ""}</g>`;
   });
   svg += `<line class="base" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/></svg>`;
   return `<div class="chart">${svg}</div>`;
@@ -258,7 +284,7 @@ views.research = () => {
     <div class="row">
       <input id="kw" style="flex:1;min-width:240px" placeholder="キーワード（英語推奨：例 Nikon F3 body）" value="${esc(rs ? rs.keyword : "")}">
       <select id="cond"><option value="">状態：すべて</option><option value="used" ${rs && rs.condition === "used" ? "selected" : ""}>中古</option><option value="new" ${rs && rs.condition === "new" ? "selected" : ""}>新品</option></select>
-      <button class="b primary" data-act="ebay-api">eBay 相場を取得</button>
+      ${IS_DESKTOP ? `<button class="b primary" data-act="ebay-api">eBay 相場を取得</button>` : ""}
     </div>
     <div class="row links" style="margin-top:10px">${SEARCH_SITES.map(([name], i) => `<button class="b" data-act="site" data-i="${i}">${name}</button>`).join("")}</div>
     ${apiBlock}
@@ -278,7 +304,7 @@ views.research = () => {
       <h2 style="margin:0">仕入れ候補リスト（${state.candidates.length}件）</h2>
       <label class="row" style="gap:6px"><input type="checkbox" id="onlyGood" ${ui.onlyGood ? "checked" : ""}> 利益候補（◎）のみ表示</label>
     </div>
-    ${list.length ? `<div class="tbl-wrap"><table>
+    ${list.length ? `<div class="tbl-wrap"><table class="stack">
       <tr><th>判定</th><th>商品名</th><th>仕入れ先</th><th class="n">仕入れ総額</th><th class="n">eBay価格</th><th class="n">手数料等</th><th class="n">国際送料</th><th class="n">利益</th><th class="n">利益率</th><th class="n">ROI</th><th></th></tr>
       ${list.map(({ c, r }) => `<tr>
         <td>${judgeBadge(r)}</td>
@@ -326,8 +352,8 @@ views.watch = () => {
     <p class="note">eBay の相場から「この金額以下で仕入れれば利益が出る」上限価格を計算します。上限価格を見ながら「全サイトで探す」でヤフオク・メルカリ等を一括検索してください。</p>
   </div>
   <div class="card">
-    <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">ウォッチ中（${state.watches.length}件）</h2><button class="b" data-act="watch-refresh-all" ${state.watches.length ? "" : "disabled"}>すべての相場を更新</button></div>
-    ${state.watches.length ? `<div class="tbl-wrap"><table>
+    <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">ウォッチ中（${state.watches.length}件）</h2>${IS_DESKTOP ? `<button class="b" data-act="watch-refresh-all" ${state.watches.length ? "" : "disabled"}>すべての相場を更新</button>` : ""}</div>
+    ${state.watches.length ? `<div class="tbl-wrap"><table class="stack">
       <tr><th>キーワード</th><th>状態</th><th class="n">出品数</th><th class="n">最安</th><th class="n">中央値</th><th class="n">想定販売価格</th><th class="n">国際送料</th><th class="n">仕入れ上限</th><th>更新</th><th></th></tr>
       ${state.watches.map(w => {
         const st = w.stats || {};
@@ -339,7 +365,7 @@ views.watch = () => {
           <td class="n">${yen(w.intlShippingJpy)}</td>
           <td class="n">${max === null ? "-" : `<b class="pos">${yen(max)}</b>`}</td>
           <td class="muted">${esc(st.fetchedAt || "")}</td>
-          <td><div class="row" style="flex-wrap:nowrap"><button class="b sm primary" data-act="watch-open" data-id="${w.id}">全サイトで探す</button><button class="b sm" data-act="watch-refresh" data-id="${w.id}">相場更新</button><button class="b sm danger" data-act="watch-del" data-id="${w.id}">削除</button></div></td>
+          <td><div class="row" style="flex-wrap:nowrap"><button class="b sm primary" data-act="watch-open" data-id="${w.id}">全サイトで探す</button>${IS_DESKTOP ? `<button class="b sm" data-act="watch-refresh" data-id="${w.id}">相場更新</button>` : ""}<button class="b sm danger" data-act="watch-del" data-id="${w.id}">削除</button></div></td>
         </tr>`;
       }).join("")}</table></div>` : `<div class="empty">ウォッチ中のキーワードはありません</div>`}
   </div>`;
@@ -366,7 +392,7 @@ views.inventory = () => {
   return `<h1>在庫・販売管理</h1>
   <div class="row" style="margin-bottom:12px"><button class="b primary" data-act="item-new">＋ 仕入れを登録</button><input id="invSearch" placeholder="商品名・SKU・メモで検索" value="${esc(ui.invSearch)}" style="min-width:240px"><button class="b" data-act="export-items" style="margin-left:auto">CSV出力</button></div>
   <div class="tabs">${INV_FILTERS.map(([k, l]) => `<button class="b sm ${ui.invFilter === k ? "on" : ""}" data-act="inv-filter" data-f="${k}">${l}（${count(k)}）</button>`).join("")}</div>
-  <div class="card" style="padding:8px 10px">${list.length ? `<div class="tbl-wrap"><table>
+  <div class="card" style="padding:8px 10px">${list.length ? `<div class="tbl-wrap"><table class="stack">
     <tr><th>SKU</th><th>商品名</th><th>状態</th><th>仕入日</th><th class="n">仕入れ総額</th><th class="n">出品/売価</th><th>売却日</th><th class="n">利益</th><th class="n">日数</th><th></th></tr>
     ${list.map(i => {
       const sold = Calc.isSold(i);
@@ -535,7 +561,8 @@ views.settings = () => {
     ${fld("monthlyGoal", "月の純利益目標（円）", s.monthlyGoal, { type: "number" })}
     ${fld("includeTaxRefund", "輸出消費税の還付を利益に含める", s.includeTaxRefund, { type: "checkbox", wide: true })}
   </div></div>
-  <div class="card"><h2>eBay API（相場の自動取得）</h2><div class="form">
+  ${IS_DESKTOP ? "" : `<input type="hidden" name="ebayClientId" value="${esc(s.ebayClientId)}"><input type="hidden" name="ebayClientSecret" value="${esc(s.ebayClientSecret)}">`}
+  <div class="card" ${IS_DESKTOP ? "" : "hidden"}><h2>eBay API（相場の自動取得）</h2><div class="form">
     ${fld("ebayClientId", "Client ID（App ID）", s.ebayClientId, { wide: true })}
     ${fld("ebayClientSecret", "Client Secret（Cert ID）", s.ebayClientSecret, { wide: true, type: "password" })}
   </div><p class="note">developer.ebay.com で無料の開発者アカウントを作成し、Production の Keyset を入力してください。入力した値はこのパソコン内にのみ保存されます。</p></div>
@@ -545,7 +572,7 @@ views.settings = () => {
     <button class="b" data-act="backup">バックアップを保存（JSON）</button>
     <button class="b" data-act="restore">バックアップから復元</button>
     <button class="b" data-act="export-items">在庫・販売データをCSV出力</button>
-  </div></div>`;
+  </div>${IS_DESKTOP ? "" : `<p class="note">スマホ版のデータはこの端末のブラウザ内に保存されます。ブラウザのデータを消去したり、別の端末に移ったりする場合に備えて、定期的にバックアップを保存してください（最終バックアップ: ${esc(state.lastBackup || "なし")}）。PC版とデータを移すときも、このバックアップファイルを使います。</p>`}</div>`;
 };
 
 // ---------- 描画とイベント ----------
@@ -557,6 +584,11 @@ function render() {
 }
 
 function bindView() {
+  // カード表示用に、各セルへ見出し名を付ける
+  document.querySelectorAll("table.stack").forEach(t => {
+    const heads = [...t.rows[0].cells].map(c => c.textContent);
+    [...t.rows].slice(1).forEach(r => [...r.cells].forEach((c, i) => c.dataset.label = heads[i] || ""));
+  });
   const cf = $("#candForm");
   if (cf) {
     const prev = $("#candPreview");
@@ -703,7 +735,13 @@ async function doAction(act, el) {
     }
     case "watch-open": {
       const w = state.watches.find(x => x.id === id), k = encodeURIComponent(w.keyword);
-      SEARCH_SITES.filter(([name]) => BUY_SITES.includes(name)).forEach(([, url]) => api.openExternal(url(k)));
+      const sites = SEARCH_SITES.filter(([name]) => BUY_SITES.includes(name));
+      if (IS_DESKTOP) { sites.forEach(([, url]) => api.openExternal(url(k))); break; }
+      // ブラウザは複数タブを同時に開けないため、リンク一覧から選んでもらう
+      const max = n(w.sellUsd) ? Calc.maxPurchase(n(w.sellUsd), 0, n(w.intlShippingJpy), s) : null;
+      openDialog(`「${esc(w.keyword)}」を探す`, `${max === null ? "" : `<p>仕入れ上限：<b class="pos">${yen(max)}</b> 以下なら利益候補</p>`}
+        <div class="row links">${SEARCH_SITES.map(([name, url]) => `<a class="b" href="${esc(url(k))}" target="_blank" rel="noopener">${name}</a>`).join("")}</div>`, null, null, "閉じる");
+      break;
       break;
     }
     case "watch-refresh":
@@ -760,10 +798,15 @@ async function doAction(act, el) {
       break;
     }
     case "backup":
-      api.saveFile({ name: `sedori-backup-${today()}.json`, content: JSON.stringify(state, null, 1), filterName: "バックアップ", ext: "json" }).then(p => p && toast("保存しました: " + p));
+      api.saveFile({ name: `sedori-backup-${today()}.json`, content: JSON.stringify(state, null, 1), filterName: "バックアップ", ext: "json" }).then(p => {
+        if (!p) return;
+        state.lastBackup = new Date().toLocaleString("ja-JP");
+        save(); render(); toast("保存しました: " + p);
+      });
       break;
     case "restore": {
-      const d = await api.openJson();
+      let d;
+      try { d = await api.openJson(); } catch (e) { return toast(errMsg(e)); }
       if (!d) return;
       if (!Array.isArray(d.items) || !d.settings) return toast("バックアップファイルの形式が正しくありません");
       if (!confirm("現在のデータを上書きして復元しますか？")) return;
@@ -779,6 +822,7 @@ function normalize(d) {
     settings: { ...Calc.DEFAULT_SETTINGS, ...(d.settings || {}) },
     candidates: d.candidates || [], watches: d.watches || [], items: d.items || [], expenses: d.expenses || [],
     rateUpdated: d.rateUpdated || "",
+    lastBackup: d.lastBackup || "",
   };
 }
 
@@ -789,4 +833,9 @@ function normalize(d) {
   } catch (e) { toast("データの読み込みに失敗しました: " + errMsg(e)); }
   render();
   if (state.settings.autoRate) updateRate(true);
+  if (!IS_DESKTOP) {
+    // ブラウザがデータを自動削除しないよう永続化を依頼し、オフラインでも開けるよう Service Worker を登録
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 })();

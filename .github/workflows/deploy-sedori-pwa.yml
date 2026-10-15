@@ -1,0 +1,39 @@
+name: Deploy eBay sedori PWA (GitHub Pages)
+on:
+  push:
+    branches: [main, "claude/**", "ccr-**"]
+    paths: ["sedori/src/**", "sedori/test/**", ".github/workflows/deploy-sedori-pwa.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sedori-pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Test
+        working-directory: sedori
+        run: npm test
+      - name: Build site
+        run: |
+          mkdir -p _site
+          cp -r sedori/src/. _site/
+          # デスクトップ版専用のファイルは公開しない
+          rm -f _site/main.js _site/preload.js
+          # 更新のたびに Service Worker のキャッシュを切り替える
+          sed -i "s/sedori-v1/sedori-${GITHUB_SHA::8}/" _site/sw.js
+          touch _site/.nojekyll
+      - name: Publish to gh-pages branch
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy sedori PWA from ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
