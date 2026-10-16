@@ -1,6 +1,6 @@
 // オフラインでも開けるよう、アプリ本体をキャッシュする（更新時は CACHE の版数を上げる）
 const CACHE = "sedori-v1";
-const FILES = ["./", "index.html", "style.css", "calc.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
+const FILES = ["./", "index.html", "style.css", "calc.js", "demo.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

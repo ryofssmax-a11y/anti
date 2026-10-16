@@ -40,6 +40,7 @@ h2 { font-size: 1rem; margin: 0 0 12px; }
 input, select, textarea { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; min-width: 0; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 textarea { min-height: 60px; resize: vertical; }
+.form label:has(textarea) { grid-column: 1 / -1; }
 .b { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; white-space: nowrap; }
 .b:hover { border-color: var(--accent); }
 .b.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
@@ -49,10 +50,14 @@ textarea { min-height: 60px; resize: vertical; }
 .links .b { font-size: .85rem; }
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+th, td { white-space: nowrap; padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
 th { font-size: .78rem; color: var(--muted); font-weight: 600; white-space: nowrap; position: sticky; top: 0; background: var(--card); }
 td.n, th.n { text-align: right; white-space: nowrap; }
-td.t { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.t { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+select[data-status] { padding: 4px 6px; font-size: .85rem; max-width: 140px; }
+/* 操作ボタンの列は右端に固定し、表を横にスクロールしても見えるようにする */
+table.acts tr > :last-child { position: sticky; right: 0; background: var(--card); box-shadow: -8px 0 8px -8px rgba(0,0,0,.25); }
+tr.click:hover td:last-child { background: var(--card); }
 tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
 tr.click { cursor: pointer; }
 tr.click:hover td, tr.sel td { background: rgba(42,120,214,.08); }
@@ -90,6 +95,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
 dialog h3 { margin: 0 0 12px; font-size: 1rem; }
 dialog fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; margin: 0 0 12px; }
 dialog legend { font-size: .82rem; font-weight: 600; padding: 0 4px; }
+.demo-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--ok-bg); color: var(--ok); border-radius: 10px; padding: 8px 12px; margin-bottom: 14px; font-size: .85rem; font-weight: 600; }
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #222; color: #fff; padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; }
 #toast.show { opacity: 1; }
 .thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; background: var(--bg); }
@@ -120,10 +126,12 @@ dialog legend { font-size: .82rem; font-weight: 600; padding: 0 4px; }
   table.stack tr:first-child { display: none; }
   table.stack tr { display: block; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-bottom: 8px; }
   table.stack td { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 0; padding: 4px 0; text-align: right; }
+  table.stack td { white-space: normal; }
   table.stack td::before { content: attr(data-label); color: var(--muted); font-size: .8rem; text-align: left; flex: none; }
-  table.stack td.t { max-width: none; white-space: normal; font-weight: 600; text-align: left; }
+  table.stack td.t { display: block; max-width: none; white-space: normal; font-weight: 600; text-align: left; }
   table.stack td.t::before { display: none; }
   table.stack td:last-child::before { display: none; }
+  table.acts tr > :last-child { position: static; box-shadow: none; background: none; }
   table.stack td:last-child .row { width: 100%; justify-content: flex-end; flex-wrap: wrap !important; }
   .card:has(table.stack) { background: none; border: 0; padding: 0; }
   table.stack tr { background: var(--card); }

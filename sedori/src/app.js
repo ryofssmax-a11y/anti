@@ -57,7 +57,7 @@ const SEARCH_SITES = [
 const BUY_SITES = ["ヤフオク", "メルカリ", "ラクマ", "Yahoo!フリマ", "駿河屋", "ハードオフ", "セカスト"];
 
 let state = { settings: { ...Calc.DEFAULT_SETTINGS }, candidates: [], watches: [], items: [], expenses: [], rateUpdated: "" };
-let ui = { tab: "dashboard", invFilter: "active", invSearch: "", onlyGood: false, year: new Date().getFullYear(), month: "", expMonth: "", research: null };
+let ui = { tab: "dashboard", invFilter: "active", invSearch: "", invLimit: 50, onlyGood: false, year: new Date().getFullYear(), month: "", expMonth: "", research: null };
 
 // ---------- ユーティリティ ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -317,7 +317,7 @@ views.research = () => {
       <h2 style="margin:0">仕入れ候補リスト（${state.candidates.length}件）</h2>
       <label class="row" style="gap:6px"><input type="checkbox" id="onlyGood" ${ui.onlyGood ? "checked" : ""}> 利益候補（◎）のみ表示</label>
     </div>
-    ${list.length ? `<div class="tbl-wrap"><table class="stack">
+    ${list.length ? `<div class="tbl-wrap"><table class="stack acts">
       <tr><th>判定</th><th>商品名</th><th>仕入れ先</th><th class="n">仕入れ総額</th><th class="n">eBay価格</th><th class="n">手数料等</th><th class="n">国際送料</th><th class="n">利益</th><th class="n">利益率</th><th class="n">ROI</th><th></th></tr>
       ${list.map(({ c, r }) => `<tr>
         <td>${judgeBadge(r)}</td>
@@ -366,7 +366,7 @@ views.watch = () => {
   </div>
   <div class="card">
     <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">ウォッチ中（${state.watches.length}件）</h2>${IS_DESKTOP ? `<button class="b" data-act="watch-refresh-all" ${state.watches.length ? "" : "disabled"}>すべての相場を更新</button>` : ""}</div>
-    ${state.watches.length ? `<div class="tbl-wrap"><table class="stack">
+    ${state.watches.length ? `<div class="tbl-wrap"><table class="stack acts">
       <tr><th>キーワード</th><th>状態</th><th class="n">出品数</th><th class="n">最安</th><th class="n">中央値</th><th class="n">想定販売価格</th><th class="n">国際送料</th><th class="n">仕入れ上限</th><th>更新</th><th></th></tr>
       ${state.watches.map(w => {
         const st = w.stats || {};
@@ -405,9 +405,9 @@ views.inventory = () => {
   return `<h1>在庫・販売管理</h1>
   <div class="row" style="margin-bottom:12px"><button class="b primary" data-act="item-new">＋ 仕入れを登録</button><button class="b" data-act="bulk-new">まとめ仕入れ</button><input id="invSearch" placeholder="商品名・SKU・カテゴリ・保管場所で検索" value="${esc(ui.invSearch)}" style="min-width:240px"><button class="b" data-act="export-items" style="margin-left:auto">CSV出力</button></div>
   <div class="tabs">${INV_FILTERS.map(([k, l]) => `<button class="b sm ${ui.invFilter === k ? "on" : ""}" data-act="inv-filter" data-f="${k}">${l}（${count(k)}）</button>`).join("")}</div>
-  <div class="card" style="padding:8px 10px">${list.length ? `<div class="tbl-wrap"><table class="stack">
+  <div class="card" style="padding:8px 10px">${list.length ? `<div class="tbl-wrap"><table class="stack acts">
     <tr><th>SKU</th><th>商品名</th><th>状態</th><th>仕入日</th><th class="n">仕入れ総額</th><th class="n">出品/売価</th><th>売却日</th><th class="n">利益</th><th class="n">日数</th><th></th></tr>
-    ${list.map(i => {
+    ${list.slice(0, ui.invLimit).map(i => {
       const sold = Calc.isSold(i);
       const r = sold ? Calc.itemFigures(i, s) : Calc.calcProfit({ sellUsd: i.listPriceUsd, purchase: i.purchasePrice, purchaseShipping: i.purchaseShipping, otherCost: i.otherCost, intlShipping: i.intlShippingJpy || s.defaultIntlShipping }, s);
       const days = i.purchaseDate ? daysBetween(i.purchaseDate, i.soldDate || t) : "";
@@ -423,7 +423,7 @@ views.inventory = () => {
         <td class="n">${days === "" ? "" : days + "日"}</td>
         <td><div class="row" style="flex-wrap:nowrap">${sold ? "" : `<button class="b sm primary" data-act="item-sold" data-id="${i.id}">売れた</button>`}<button class="b sm" data-act="item-edit" data-id="${i.id}">編集</button><button class="b sm danger" data-act="item-del" data-id="${i.id}">削除</button></div></td>
       </tr>`;
-    }).join("")}</table></div>` : `<div class="empty">該当する商品はありません</div>`}</div>`;
+    }).join("")}</table></div>${list.length > ui.invLimit ? `<div class="row" style="justify-content:center;padding:10px"><button class="b" data-act="inv-more">さらに表示（残り ${list.length - ui.invLimit} 件）</button></div>` : ""}` : `<div class="empty">該当する商品はありません</div>`}</div>`;
 };
 
 // 既に使っているカテゴリ・保管場所を入力候補にする
@@ -649,6 +649,8 @@ views.settings = () => {
   <div class="row" style="margin-bottom:16px"><button class="b primary" type="submit">設定を保存</button></div>
   </form>
   <div class="card"><h2>データ管理</h2><div class="row">
+    <button class="b" data-act="demo-load">デモデータを読み込む</button>
+    <button class="b danger" data-act="data-clear">すべてのデータを消去</button>
     <button class="b" data-act="backup">バックアップを保存（JSON）</button>
     <button class="b" data-act="restore">バックアップから復元</button>
     <button class="b" data-act="export-items">在庫・販売データをCSV出力</button>
@@ -658,7 +660,8 @@ views.settings = () => {
 // ---------- 描画とイベント ----------
 function render() {
   document.querySelectorAll(".nav").forEach(b => b.classList.toggle("on", b.dataset.tab === ui.tab));
-  $("#view").innerHTML = views[ui.tab]();
+  const demoBar = state.isDemo ? `<div class="demo-bar">デモデータを表示中です。実際に使うときは設定の「すべてのデータを消去」で消してください。<button class="b sm" data-act="data-clear">消去する</button></div>` : "";
+  $("#view").innerHTML = demoBar + views[ui.tab]();
   $("#rateBox").innerHTML = `1 USD = ${n(S().usdJpy).toFixed(2)} 円`;
   bindView();
 }
@@ -702,6 +705,7 @@ function bindView() {
   const is = $("#invSearch");
   if (is) is.oninput = () => {
     ui.invSearch = is.value;
+    ui.invLimit = 50;
     const pos = is.selectionStart;
     render();
     const el = $("#invSearch"); el.focus(); el.setSelectionRange(pos, pos);
@@ -875,7 +879,8 @@ async function doAction(act, el) {
     case "watch-del":
       if (confirm("削除しますか？")) { state.watches = state.watches.filter(w => w.id !== id); save(); render(); }
       break;
-    case "inv-filter": ui.invFilter = el.dataset.f; render(); break;
+    case "inv-filter": ui.invFilter = el.dataset.f; ui.invLimit = 50; render(); break;
+    case "inv-more": ui.invLimit += 50; render(); break;
     case "item-new": itemDialog({}); break;
     case "bulk-new": bulkDialog(); break;
     case "item-edit": itemDialog(state.items.find(i => i.id === id)); break;
@@ -919,6 +924,18 @@ async function doAction(act, el) {
         ...items.map(i => { const r = Calc.itemFigures(i, s); return [i.soldDate, i.sku, i.title, r.salesUsd, r.rate, r.salesJpy, r.feesJpy, r.payoutFeeJpy, r.purchaseTotal, r.intlShipping, r.profit, r.margin.toFixed(1)]; })]);
       break;
     }
+    case "demo-load": {
+      const has = state.items.length + state.candidates.length + state.watches.length + state.expenses.length;
+      if (!confirm(has ? "今のデータはすべて消え、デモデータに置き換わります。先にバックアップを保存しましたか？\n\n続けますか？" : "表示確認用のデモデータを読み込みますか？")) break;
+      state = normalize({ ...makeDemoData(today()), settings: state.settings, rateUpdated: state.rateUpdated });
+      save(); ui.tab = "dashboard"; render(); toast("デモデータを読み込みました");
+      break;
+    }
+    case "data-clear":
+      if (!confirm("在庫・販売・候補・ウォッチ・経費をすべて消去します（設定は残ります）。元に戻せません。続けますか？")) break;
+      state = normalize({ settings: state.settings, rateUpdated: state.rateUpdated });
+      save(); render(); toast("データを消去しました");
+      break;
     case "backup":
       api.saveFile({ name: `sedori-backup-${today()}.json`, content: JSON.stringify(state, null, 1), filterName: "バックアップ", ext: "json" }).then(p => {
         if (!p) return;
@@ -945,6 +962,7 @@ function normalize(d) {
     candidates: d.candidates || [], watches: d.watches || [], items: d.items || [], expenses: d.expenses || [],
     rateUpdated: d.rateUpdated || "",
     lastBackup: d.lastBackup || "",
+    isDemo: !!d.isDemo,
   };
 }
 
