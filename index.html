@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f2937">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="せどり管理">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://open.er-api.com; worker-src 'self'; manifest-src 'self'">
+<title>eBayせどり管理</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <nav class="side">
+    <div class="brand">eBayせどり管理</div>
+    <button class="nav" data-tab="dashboard"><span class="lg">ダッシュボード</span><span class="sm">ホーム</span></button>
+    <button class="nav" data-tab="research"><span class="lg">リサーチ・利益計算</span><span class="sm">リサーチ</span></button>
+    <button class="nav" data-tab="watch"><span class="lg">ウォッチリスト</span><span class="sm">ウォッチ</span></button>
+    <button class="nav" data-tab="inventory"><span class="lg">在庫・販売管理</span><span class="sm">在庫</span></button>
+    <button class="nav" data-tab="monthly"><span class="lg">月次レポート</span><span class="sm">月次</span></button>
+    <button class="nav" data-tab="expenses"><span class="lg">経費</span><span class="sm">経費</span></button>
+    <button class="nav" data-tab="settings"><span class="lg">設定</span><span class="sm">設定</span></button>
+    <div class="rate" id="rateBox"></div>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<div id="toast" role="status"></div>
+<div id="tip" class="tip" hidden></div>
+
+<script src="calc.js"></script>
+<script src="demo.js"></script>
+<script src="scanner.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
