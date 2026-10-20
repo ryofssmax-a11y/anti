@@ -100,7 +100,8 @@ async function ebayToken(clientId, clientSecret) {
 ipcMain.handle("ebay-search", async (_e, { keyword, clientId, clientSecret, condition }) => {
   if (!clientId || !clientSecret) throw new Error("設定画面で eBay API の Client ID と Client Secret を入力してください");
   const token = await ebayToken(clientId, clientSecret);
-  const params = new URLSearchParams({ q: keyword, limit: "100" });
+  // 8〜14桁の数字は JAN/UPC とみなし、商品コードで完全一致検索する
+  const params = /^\d{8,14}$/.test(keyword) ? new URLSearchParams({ gtin: keyword, limit: "100" }) : new URLSearchParams({ q: keyword, limit: "100" });
   const filters = ["buyingOptions:{FIXED_PRICE}", "priceCurrency:USD"];
   if (condition === "new") filters.push("conditions:{NEW}");
   if (condition === "used") filters.push("conditions:{USED}");

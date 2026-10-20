@@ -96,6 +96,19 @@ dialog h3 { margin: 0 0 12px; font-size: 1rem; }
 dialog fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; margin: 0 0 12px; }
 dialog legend { font-size: .82rem; font-weight: 600; padding: 0 4px; }
 .demo-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--ok-bg); color: var(--ok); border-radius: 10px; padding: 8px 12px; margin-bottom: 14px; font-size: .85rem; font-weight: 600; }
+#scanDlg { width: min(560px, 96vw); padding: 0; }
+.scan-wrap { padding: 16px; }
+.scan-wrap h3 { margin: 0 0 10px; font-size: 1rem; }
+.scan-view { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+.scan-view video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-guide { position: absolute; left: 8%; right: 8%; top: 30%; bottom: 30%; border: 3px solid rgba(255,255,255,.9); border-radius: 8px; box-shadow: 0 0 0 999px rgba(0,0,0,.35); }
+.scan-guide::after { content: ""; position: absolute; left: 4%; right: 4%; top: 50%; border-top: 2px solid #e5484d; }
+.scan-msg { min-height: 2.6em; font-size: .9rem; margin: 10px 0; }
+.scan-actions { justify-content: flex-end; }
+.scan-manual { margin-top: 10px; }
+#scanDlg form { padding: 0; }
+.scan-manual input { flex: 1; font-size: 18px; letter-spacing: .05em; }
+.jan-box { margin-top: 12px; background: var(--bg); border-radius: 10px; padding: 10px 12px; }
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #222; color: #fff; padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; }
 #toast.show { opacity: 1; }
 .thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; background: var(--bg); }

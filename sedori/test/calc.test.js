@@ -160,3 +160,22 @@ test("yearCogs: 期首棚卸 + 当期仕入 − 期末棚卸", () => {
   assert.strictEqual(r.closingCount, 2);
   assert.strictEqual(r.cogs, 3000 + 14500 - 9000);
 });
+
+test("normalizeGtin: チェックデジットを検証する", () => {
+  assert.strictEqual(C.normalizeGtin("4901234567894"), "4901234567894");
+  assert.strictEqual(C.normalizeGtin("4901234567890"), "");           // チェックデジット違い
+  assert.strictEqual(C.normalizeGtin("４９０１２３４５６７８９４"), "4901234567894"); // 全角
+  assert.strictEqual(C.normalizeGtin("49-01234-56789-4"), "4901234567894");
+  assert.strictEqual(C.normalizeGtin("49123456"), "49123456");          // 短縮JAN(EAN-8)
+  assert.strictEqual(C.normalizeGtin("036000291452"), "036000291452");  // UPC-A
+  assert.strictEqual(C.normalizeGtin("12345"), "");
+  assert.strictEqual(C.gtinKind("4901234567894"), "日本の商品（JAN）");
+  assert.strictEqual(C.gtinKind("9784003101018"), "書籍（ISBN）");
+  assert.strictEqual(C.gtinKind("036000291452"), "米国・カナダの商品（UPC）");
+});
+
+test("parseListingText: 文章中の JAN を拾う", () => {
+  assert.strictEqual(C.parseListingText("ポケモンカード BOX 4521329312345 ¥5,000").jan, C.normalizeGtin("4521329312345") ? "4521329312345" : "");
+  assert.strictEqual(C.parseListingText("JAN:4901234567894 新品 3,000円").jan, "4901234567894");
+  assert.strictEqual(C.parseListingText("型番 4901234567890 ¥1,000").jan, "");
+});

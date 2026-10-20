@@ -153,6 +153,12 @@ function openDialog(title, body, onSave, onInput, saveLabel = "保存") {
   if (onInput) onInput(form);
   $("#dlg").showModal();
 }
+$("#dlgForm").addEventListener("click", e => {
+  const b = e.target.closest("[data-scan-into]");
+  if (!b) return;
+  const input = $("#dlgForm").elements[b.dataset.scanInto];
+  Scanner.open(code => { input.value = code; input.dispatchEvent(new Event("input", { bubbles: true })); });
+});
 $("#dlgForm").addEventListener("submit", e => {
   e.preventDefault();
   const btn = e.submitter;
@@ -297,9 +303,11 @@ views.research = () => {
     <div class="row">
       <input id="kw" style="flex:1;min-width:240px" placeholder="キーワード（英語推奨：例 Nikon F3 body）" value="${esc(rs ? rs.keyword : "")}">
       <select id="cond"><option value="">状態：すべて</option><option value="used" ${rs && rs.condition === "used" ? "selected" : ""}>中古</option><option value="new" ${rs && rs.condition === "new" ? "selected" : ""}>新品</option></select>
+      <button class="b" data-act="scan">📷 バーコード</button>
       ${IS_DESKTOP ? `<button class="b primary" data-act="ebay-api">eBay 相場を取得</button>` : ""}
     </div>
     <div class="row links" style="margin-top:10px">${SEARCH_SITES.map(([name], i) => `<button class="b" data-act="site" data-i="${i}">${name}</button>`).join("")}</div>
+    <div id="janPanel">${janPanel()}</div>
     ${apiBlock}
   </div>
 
@@ -330,10 +338,51 @@ views.research = () => {
   </div>`;
 };
 
+// JAN で検索するときのサイト（JAN は商品名と違い、通販サイトの検索で正確に当たりやすい）
+const JAN_SITES = [
+  ["Amazon.co.jp", k => `https://www.amazon.co.jp/s?k=${k}`],
+  ["楽天市場", k => `https://search.rakuten.co.jp/search/mall/${k}/`],
+  ["Yahoo!ショッピング", k => `https://shopping.yahoo.co.jp/search?p=${k}`],
+  ["駿河屋", k => `https://www.suruga-ya.jp/search?search_word=${k}`],
+  ["eBay 売却済み", k => `https://www.ebay.com/sch/i.html?_nkw=${k}&LH_Sold=1&LH_Complete=1`],
+  ["eBay 出品中", k => `https://www.ebay.com/sch/i.html?_nkw=${k}`],
+  ["ヤフオク落札相場", k => `https://auctions.yahoo.co.jp/closedsearch/closedsearch?p=${k}`],
+  ["メルカリ", k => `https://jp.mercari.com/search?keyword=${k}&status=on_sale`],
+  ["Google", k => `https://www.google.com/search?q=${k}`],
+];
+
+function janPanel() {
+  const j = ui.jan;
+  if (!j) return "";
+  const same = state.items.filter(i => i.janCode === j.code && i.status !== "cancelled");
+  const active = same.filter(i => i.status === "stock" || i.status === "listed");
+  const sold = same.filter(Calc.isSold);
+  const avg = sold.length ? sold.reduce((a, i) => a + Calc.itemFigures(i, S()).profit, 0) / sold.length : null;
+  return `<div class="jan-box">
+    <div class="row" style="justify-content:space-between"><div><b style="font-size:1.1rem;letter-spacing:.04em">${esc(j.code)}</b> <span class="muted">${esc(Calc.gtinKind(j.code))}</span></div><button class="b sm" data-act="jan-clear">閉じる</button></div>
+    ${same.length ? `<p class="note" style="margin:6px 0 0">${active.length ? `<span class="badge ok">在庫に同じ商品が${active.length}点あります</span> ` : ""}${sold.length ? `過去に${sold.length}点販売（1点あたり利益 ${yen(avg)}）` : ""}</p>` : ""}
+    <p class="note" style="margin:6px 0">JAN で検索して商品名と相場を確認し、分かった商品名を下の利益シミュレーターに入れてください。</p>
+    <div class="row links">${JAN_SITES.map(([name, url]) => `<a class="b sm" href="${esc(url(encodeURIComponent(j.code)))}" target="_blank" rel="noopener">${name}</a>`).join("")}</div>
+  </div>`;
+}
+
+// 読み取った JAN をリサーチ画面に反映する
+function applyJan(code) {
+  ui.jan = { code };
+  const kw = $("#kw");
+  if (kw) kw.value = code;
+  const f = $("#candForm");
+  if (f && f.janCode) f.janCode.value = code;
+  const panel = $("#janPanel");
+  if (panel) { panel.innerHTML = janPanel(); panel.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  toast("読み取りました：" + code);
+}
+
 function candFields(c) {
   return `${fld("title", "商品名", c.title || "", { required: true, wide: true })}
     ${fld("source", "仕入れ先", c.source || "メルカリ", { options: SOURCES })}
     ${fld("sourceUrl", "仕入れ先URL", c.sourceUrl || "", { placeholder: "https://" })}
+    ${fld("janCode", "JANコード", c.janCode || "", { placeholder: "📷で読み取り可" })}
     ${fld("purchasePrice", "仕入れ価格（円）", c.purchasePrice ?? "", { type: "number", required: true })}
     ${fld("purchaseShipping", "国内送料・手数料（円）", c.purchaseShipping ?? 0, { type: "number" })}
     ${fld("ebayPriceUsd", "eBay 販売予想価格（USD）", c.ebayPriceUsd ?? "", { type: "number", required: true })}
@@ -399,11 +448,11 @@ views.inventory = () => {
   const s = S(), t = today();
   const match = i => ui.invFilter === "all" || (ui.invFilter === "active" ? (i.status === "stock" || i.status === "listed") : i.status === ui.invFilter);
   const q = ui.invSearch.toLowerCase();
-  const list = state.items.filter(match).filter(i => !q || [i.title, i.sku, i.memo, i.category, i.location, i.source].join(" ").toLowerCase().includes(q))
+  const list = state.items.filter(match).filter(i => !q || [i.title, i.sku, i.janCode, i.memo, i.category, i.location, i.source].join(" ").toLowerCase().includes(q))
     .sort((a, b) => (b.soldDate || b.purchaseDate || "").localeCompare(a.soldDate || a.purchaseDate || ""));
   const count = f => state.items.filter(i => f === "all" || (f === "active" ? (i.status === "stock" || i.status === "listed") : i.status === f)).length;
   return `<h1>在庫・販売管理</h1>
-  <div class="row" style="margin-bottom:12px"><button class="b primary" data-act="item-new">＋ 仕入れを登録</button><button class="b" data-act="bulk-new">まとめ仕入れ</button><input id="invSearch" placeholder="商品名・SKU・カテゴリ・保管場所で検索" value="${esc(ui.invSearch)}" style="min-width:240px"><button class="b" data-act="export-items" style="margin-left:auto">CSV出力</button></div>
+  <div class="row" style="margin-bottom:12px"><button class="b primary" data-act="item-new">＋ 仕入れを登録</button><button class="b" data-act="bulk-new">まとめ仕入れ</button><button class="b" data-act="inv-scan" title="バーコードで在庫を探す">📷</button><input id="invSearch" placeholder="商品名・SKU・JAN・カテゴリ・保管場所で検索" value="${esc(ui.invSearch)}" style="min-width:240px"><button class="b" data-act="export-items" style="margin-left:auto">CSV出力</button></div>
   <div class="tabs">${INV_FILTERS.map(([k, l]) => `<button class="b sm ${ui.invFilter === k ? "on" : ""}" data-act="inv-filter" data-f="${k}">${l}（${count(k)}）</button>`).join("")}</div>
   <div class="card" style="padding:8px 10px">${list.length ? `<div class="tbl-wrap"><table class="stack acts">
     <tr><th>SKU</th><th>商品名</th><th>状態</th><th>仕入日</th><th class="n">仕入れ総額</th><th class="n">出品/売価</th><th>売却日</th><th class="n">利益</th><th class="n">日数</th><th></th></tr>
@@ -446,6 +495,7 @@ function itemDialog(item, focusSale) {
   const body = `
     <fieldset><legend>仕入れ</legend><div class="form">
       ${fld("sku", "SKU", it.sku)}
+      <label>JANコード<span class="row" style="flex-wrap:nowrap;gap:4px"><input name="janCode" value="${esc(it.janCode || "")}" inputmode="numeric" style="flex:1"><button class="b sm" type="button" data-scan-into="janCode" title="バーコードを読み取る">📷</button></span></label>
       ${fld("title", "商品名", it.title || "", { required: true, wide: true })}
       ${fld("status", "状態", it.status, { options: Object.entries(STATUS) })}
       ${fld("source", "仕入れ先", it.source, { options: SOURCES })}
@@ -781,6 +831,8 @@ function applyPasted(text) {
   f.purchasePrice.value = r.price === null ? "" : r.price;
   f.purchaseShipping.value = 0;
   f.ebayPriceUsd.value = "";
+  f.janCode.value = r.jan || "";
+  if (r.jan) { ui.jan = { code: r.jan }; $("#janPanel").innerHTML = janPanel(); }
   f.dispatchEvent(new Event("input"));
   const parts = [r.source || "仕入れ先不明", r.price !== null ? yen(r.price) : "価格なし", r.title ? "商品名あり" : "商品名なし"];
   out.textContent = "読み取り結果：" + parts.join("・");
@@ -804,6 +856,15 @@ async function doAction(act, el) {
       break;
     }
     case "paste-parse": applyPasted($("#pasteBox").value); break;
+    case "scan": Scanner.open(applyJan); break;
+    case "jan-clear": ui.jan = null; $("#janPanel").innerHTML = ""; break;
+    case "inv-scan":
+      Scanner.open(code => {
+        ui.invSearch = code; ui.invFilter = "all"; ui.invLimit = 50; render();
+        const hit = state.items.some(i => i.janCode === code);
+        toast(hit ? "同じ JAN の商品を表示しています" : "この JAN の商品は在庫にありません");
+      });
+      break;
     case "site": {
       const k = $("#kw").value.trim();
       if (!k) return toast("キーワードを入力してください");
@@ -850,7 +911,7 @@ async function doAction(act, el) {
     }
     case "cand-buy": {
       const c = state.candidates.find(x => x.id === id);
-      itemDialog({ title: c.title, source: c.source, sourceUrl: c.sourceUrl, purchasePrice: c.purchasePrice, purchaseShipping: c.purchaseShipping, listPriceUsd: c.ebayPriceUsd, intlShippingJpy: c.intlShippingJpy, fromCandidate: c.id });
+      itemDialog({ title: c.title, janCode: c.janCode, source: c.source, sourceUrl: c.sourceUrl, purchasePrice: c.purchasePrice, purchaseShipping: c.purchaseShipping, listPriceUsd: c.ebayPriceUsd, intlShippingJpy: c.intlShippingJpy, fromCandidate: c.id });
       break;
     }
     case "watch-open": {
@@ -898,10 +959,10 @@ async function doAction(act, el) {
     case "exp-del": state.expenses = state.expenses.filter(e => e.id !== id); save(); render(); break;
     case "fetch-rate": updateRate(false); break;
     case "export-items": {
-      const head = ["SKU", "商品名", "状態", "カテゴリ", "保管場所", "仕入れ先", "仕入日", "仕入れ価格", "国内送料等", "その他費用", "出品日", "出品価格USD", "売却日", "販売価格USD", "購入者負担送料USD", "国際送料", "レート", "eBay手数料(円)", "入金コスト(円)", "返金USD", "返品損失(円)", "利益", "利益率%", "購入者・注文", "追跡番号", "メモ"];
+      const head = ["SKU", "JAN", "商品名", "状態", "カテゴリ", "保管場所", "仕入れ先", "仕入日", "仕入れ価格", "国内送料等", "その他費用", "出品日", "出品価格USD", "売却日", "販売価格USD", "購入者負担送料USD", "国際送料", "レート", "eBay手数料(円)", "入金コスト(円)", "返金USD", "返品損失(円)", "利益", "利益率%", "購入者・注文", "追跡番号", "メモ"];
       download(`sedori-items-${today()}.csv`, [head, ...state.items.map(i => {
         const r = Calc.isSold(i) ? Calc.itemFigures(i, s) : null;
-        return [i.sku, i.title, STATUS[i.status], i.category, i.location, i.source, i.purchaseDate, i.purchasePrice, i.purchaseShipping, i.otherCost, i.listDate, i.listPriceUsd, i.soldDate, i.soldPriceUsd, i.shippingChargedUsd, i.intlShippingJpy, i.rateAtSale,
+        return [i.sku, i.janCode, i.title, STATUS[i.status], i.category, i.location, i.source, i.purchaseDate, i.purchasePrice, i.purchaseShipping, i.otherCost, i.listDate, i.listPriceUsd, i.soldDate, i.soldPriceUsd, i.shippingChargedUsd, i.intlShippingJpy, i.rateAtSale,
           r ? r.feesJpy : "", r ? r.payoutFeeJpy : "", i.refundUsd, i.returnCostJpy, r ? r.profit : "", r ? r.margin.toFixed(1) : "", i.buyer, i.tracking, i.memo];
       })]);
       break;

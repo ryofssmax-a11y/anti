@@ -296,10 +296,33 @@
     }
     title = title.replace(/\s+/g, " ").trim().slice(0, 200);
     const freeShipping = /送料(込み?|無料)|出品者負担/.test(body);
-    return { title, price, url, source, freeShipping, found: !!(title || price || url) };
+    const janMatch = (body.match(/(?<!\d)\d{13}(?!\d)/g) || []).find(x => normalizeGtin(x));
+    const jan = janMatch || "";
+    return { title, price, url, source, freeShipping, jan, found: !!(title || price || url || jan) };
   }
 
-  const api = { DEFAULT_SETTINGS, calcProfit, maxPurchase, judge, median, itemFigures, isSold,
+  // ---- JAN（EAN-13/EAN-8）・UPC のバーコード番号 ----
+  // 数字だけにして、桁数とチェックデジットが正しければその番号を返す（不正なら空文字）
+  function normalizeGtin(code) {
+    const d = String(code || "").normalize("NFKC").replace(/[^0-9]/g, "");
+    if (![8, 12, 13, 14].includes(d.length)) return "";
+    const digits = d.split("").map(Number);
+    const check = digits.pop();
+    const sum = digits.reverse().reduce((a, x, i) => a + x * (i % 2 === 0 ? 3 : 1), 0);
+    return (10 - (sum % 10)) % 10 === check ? d : "";
+  }
+  // 種類の目安（日本の JAN は 45・49 で始まる。978/979 は書籍の ISBN）
+  function gtinKind(code) {
+    const d = normalizeGtin(code);
+    if (!d) return "";
+    if (d.length === 13 && /^97[89]/.test(d)) return "書籍（ISBN）";
+    if (d.length === 13 && /^4[59]/.test(d)) return "日本の商品（JAN）";
+    if (d.length === 8 && /^4[59]/.test(d)) return "日本の商品（短縮JAN）";
+    if (d.length === 12) return "米国・カナダの商品（UPC）";
+    return "海外の商品（EAN）";
+  }
+
+  const api = { DEFAULT_SETTINGS, normalizeGtin, gtinKind, calcProfit, maxPurchase, judge, median, itemFigures, isSold,
     monthlySummary, dailySummary, inventoryValue, toCsv, parseListingText, breakdown, splitCost, yearCogs };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Calc = api;
