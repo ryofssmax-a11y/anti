@@ -6,7 +6,8 @@
     "dev": "concurrently -k -n server,web \"tsx watch server/index.ts\" \"vite\"",
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:artifact": "node scripts/build-artifact.mjs"
   },
   "author": "ryofssmax-a11y",
   "license": "MIT",

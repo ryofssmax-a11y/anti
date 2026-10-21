@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DrawnCard } from "../shared/cards.ts";
 import type { PersonaId } from "../shared/personas.ts";
+import { aiAvailable } from "./api.ts";
 import { Daily } from "./components/Daily.tsx";
 import { History } from "./components/History.tsx";
 import { NewReading } from "./components/NewReading.tsx";
@@ -31,10 +32,7 @@ export default function App() {
   useEffect(() => saveReadings(readings), [readings]);
   useEffect(() => saveSettings(settings), [settings]);
   useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((h) => setAiConfigured(Boolean(h.aiConfigured)))
-      .catch(() => setAiConfigured(false));
+    void aiAvailable().then(setAiConfigured);
   }, []);
 
   const startSession = (params: { question: string; spreadId: string; persona: PersonaId; cards: DrawnCard[]; fromDaily?: boolean }, fresh: boolean) => {

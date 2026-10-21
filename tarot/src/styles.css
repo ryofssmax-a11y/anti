@@ -55,7 +55,9 @@ button {
 .app {
   max-width: 680px;
   margin: 0 auto;
-  padding: 0 16px calc(84px + env(safe-area-inset-bottom));
+  padding-block: 0 calc(84px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 
 .app-header {
@@ -107,7 +109,9 @@ button {
   display: flex;
   justify-content: center;
   gap: 4px;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: rgba(18, 14, 36, 0.92);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
@@ -1009,6 +1013,28 @@ textarea:focus,
   color: var(--muted);
   font-size: 1.2rem;
   cursor: pointer;
+}
+
+.confirm-delete {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 10px;
+}
+
+.text-btn {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.text-btn.danger {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .icon-btn:hover {

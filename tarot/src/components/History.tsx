@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CARD_BY_ID, CARDS, SPREAD_BY_ID, type Suit } from "../../shared/cards.ts";
 import type { DailyRecord, ReadingRecord } from "../storage.ts";
 import { CardView } from "./CardView.tsx";
@@ -17,6 +18,8 @@ function formatDate(iso: string) {
 }
 
 export function History({ daily, readings, onOpen, onDelete }: HistoryProps) {
+  // ブラウザの confirm() はアーティファクト内で使えないので、画面内で確認する
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const allDraws = [...daily, ...readings.filter((r) => !r.fromDaily).flatMap((r) => r.cards)];
   const counts = new Map<string, number>();
   const suitCounts = new Map<Suit, number>();
@@ -106,16 +109,20 @@ export function History({ daily, readings, onOpen, onDelete }: HistoryProps) {
                   <strong>{r.question || "全体の運勢"}</strong>
                   <span className="reading-cards">{r.cards.map((c) => CARD_BY_ID.get(c.cardId)!.name + (c.reversed ? "(逆)" : "")).join("、")}</span>
                 </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="削除"
-                  onClick={() => {
-                    if (confirm("このリーディングを削除しますか？")) onDelete(r.id);
-                  }}
-                >
-                  ×
-                </button>
+                {confirmingId === r.id ? (
+                  <span className="confirm-delete">
+                    <button type="button" className="text-btn danger" onClick={() => onDelete(r.id)}>
+                      削除する
+                    </button>
+                    <button type="button" className="text-btn" onClick={() => setConfirmingId(null)}>
+                      やめる
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" className="icon-btn" aria-label="削除" onClick={() => setConfirmingId(r.id)}>
+                    ×
+                  </button>
+                )}
               </li>
             ))}
           </ul>

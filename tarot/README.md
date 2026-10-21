@@ -17,7 +17,8 @@
 |---|---|
 | `src/` | 画面（React + Vite） |
 | `server/index.ts` | API サーバー（Express）。Claude API を呼んで結果をストリーミングで返す |
-| `shared/` | カードデータ・スプレッド・占い師の設定（画面とサーバーで共通） |
+| `shared/` | カードデータ・スプレッド・占い師の設定・AIへの指示（画面とサーバーで共通） |
+| `scripts/build-artifact.mjs` | claude.ai のアーティファクト用に1ファイルへまとめる |
 
 API キーはサーバー側だけで使い、ブラウザには渡しません。AI へのプロンプトはサーバーがカードIDから組み立てます。
 
@@ -36,6 +37,12 @@ npm run dev                           # http://localhost:5173 で開く
 npm run build
 npm start      # http://localhost:8787 で画面と API の両方を配信
 ```
+
+### claude.ai のアーティファクトとして公開する
+```
+npm run build:artifact   # dist/artifact.html（CSSとJSを埋め込んだ1ファイル）を作る
+```
+アーティファクトとして開くと、AIリーディングは閲覧者自身の Claude（`sample` 機能）で動きます。APIキーもサーバーも不要です。
 
 ### 環境変数
 | 変数 | 既定値 | 説明 |
